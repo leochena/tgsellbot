@@ -1,0 +1,48 @@
+{% extends "sqladmin/layout.html" %}
+{% from 'sqladmin/_macros.html' import render_form_fields %}
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">{{ admin_t('admin_web.edit_title', name=model_view.name) }}</h3>
+    </div>
+    <div class="card-body border-bottom py-3">
+      {% block edit_form %}
+      <form action="{{ model_view._build_url_for('admin:edit', request, obj) }}" method="POST"
+        enctype="multipart/form-data">
+        <div class="row">
+          {% if error %}
+          <div class="alert alert-danger" role="alert">{{ error }}</div>
+          {% endif %}
+        </div>
+        <fieldset class="form-fieldset">
+          {{ render_form_fields(form, form_opts=form_opts, ajax_lookup_url=url_for('admin:ajax_lookup', identity=model_view.identity)) }}
+        </fieldset>
+        <div class="row">
+          <div class="col-md-2">
+            <a href="{{ url_for('admin:list', identity=model_view.identity) }}" class="btn">
+              {{ admin_t('admin_web.cancel') }}
+            </a>
+          </div>
+          <div class="col-md-6">
+            <div class="btn-group flex-wrap" data-toggle="buttons">
+              {% block submit_buttons_bottom  %}
+                <button type="submit" name="save" value="Save" class="btn">{{ admin_t('admin_web.save') }}</button>
+                <button type="submit" name="save" value="Save and continue editing" class="btn">{{ admin_t('admin_web.save_continue') }}</button>
+                {% if model_view.can_create %}
+                {% if model_view.save_as %}
+                <button type="submit" name="save" value="Save as new" class="btn">{{ admin_t('admin_web.save_as_new') }}</button>
+                {% else %}
+                <button type="submit" name="save" value="Save and add another" class="btn">{{ admin_t('admin_web.save_add_another') }}</button>
+                {% endif %}
+                {% endif %}
+              {% endblock %}
+            </div>
+          </div>
+        </div>
+      </form>
+      {% endblock %}
+    </div>
+  </div>
+</div>
+{% endblock %}

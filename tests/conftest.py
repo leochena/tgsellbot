@@ -125,12 +125,24 @@ async def db_cleanup(setup_test_database):
     from bot.database.main import Database
     from bot.database.models.main import (
         ReferralEarnings, BoughtGoods, Operations, Payments,
-        ItemValues, Goods, Categories, User, Role
+        ItemValues, Goods, Categories, User, Role,
+        CheckIns, LotteryEntries, LotteryEvents, LotteryWinners,
+        CartItems, GroupInviteLinks, GroupInviteRewards, BotSettings,
+        PromoCodes, PromoCodeUsages,
     )
 
     db = Database()
     async with db.session() as s:
         # Delete in FK order
+        await s.execute(delete(CheckIns))
+        await s.execute(delete(LotteryWinners))
+        await s.execute(delete(LotteryEntries))
+        await s.execute(delete(LotteryEvents))
+        await s.execute(delete(GroupInviteRewards))
+        await s.execute(delete(GroupInviteLinks))
+        await s.execute(delete(CartItems))
+        await s.execute(delete(PromoCodeUsages))
+        await s.execute(delete(PromoCodes))
         await s.execute(delete(ReferralEarnings))
         await s.execute(delete(BoughtGoods))
         await s.execute(delete(Operations))
@@ -139,6 +151,7 @@ async def db_cleanup(setup_test_database):
         await s.execute(delete(Goods))
         await s.execute(delete(Categories))
         await s.execute(delete(User))
+        await s.execute(delete(BotSettings))
         # Delete custom roles (keep built-in)
         await s.execute(delete(Role).where(Role.name.notin_(['USER', 'ADMIN', 'OWNER'])))
 
@@ -186,6 +199,8 @@ def patch_env_keys():
         'CRYPTO_PAY_TOKEN': 'test_token',
         'TELEGRAM_PROVIDER_TOKEN': 'test_provider',
         'CHANNEL_URL': '',
+        'CHANNEL_ID': '',
+        'ANNOUNCEMENT_CHAT_ID': '',
         'HELPER_ID': '',
         'RULES': 'Test rules',
     }
@@ -208,6 +223,7 @@ def mock_localize():
             patch('bot.handlers.user.balance_and_payment.localize', side_effect=fake_localize), \
             patch('bot.handlers.user.shop_and_goods.localize', side_effect=fake_localize), \
             patch('bot.handlers.user.referral_system.localize', side_effect=fake_localize), \
+            patch('bot.handlers.admin.broadcast.localize', side_effect=fake_localize), \
             patch('bot.handlers.admin.user_management_states.localize', side_effect=fake_localize), \
             patch('bot.handlers.admin.categories_management_states.localize', side_effect=fake_localize), \
             patch('bot.handlers.admin.goods_management_states.localize', side_effect=fake_localize), \
@@ -225,6 +241,7 @@ def user_factory():
     async def _create(
             telegram_id: int = 100001,
             balance: int = 0,
+            points_balance: int = 0,
             role_id: int = 1,
             referral_id: int = None,
     ):
@@ -236,6 +253,13 @@ def user_factory():
         )
         if balance > 0:
             await update_balance(telegram_id, balance)
+        if points_balance > 0:
+            from bot.database.main import Database
+            from bot.database.models.main import User
+            from sqlalchemy import select
+            async with Database().session() as s:
+                user = (await s.execute(select(User).where(User.telegram_id == telegram_id))).scalars().one()
+                user.points_balance = points_balance
         return await check_user(telegram_id)
 
     return _create
@@ -260,12 +284,26 @@ def item_factory(category_factory):
     async def _create(
             name: str = "TestItem",
             price: int = 100,
+            points_price: int = 0,
+            points_max_per_redeem: int = 1,
+            lottery_enabled: bool = False,
+            lottery_level: str = "",
+            lottery_winners_count: int = 1,
             category: str = "TestCategory",
             description: str = "Test description",
             values: list = None,
     ):
         await category_factory(category)
-        await create_item(name, description, price, category)
+        await create_item(name, description, price, category, points_price=points_price)
+        from bot.database.main import Database
+        from bot.database.models.main import Goods
+        from sqlalchemy import select
+        async with Database().session() as s:
+            item = (await s.execute(select(Goods).where(Goods.name == name))).scalars().one()
+            item.points_max_per_redeem = points_max_per_redeem
+            item.lottery_enabled = lottery_enabled
+            item.lottery_level = lottery_level
+            item.lottery_winners_count = lottery_winners_count
         if values:
             for val, is_inf in values:
                 await add_values_to_item(name, val, is_inf)
@@ -278,6 +316,7 @@ def mock_bot():
     """Mock bot with common method signatures."""
     bot = AsyncMock()
     bot.send_message = AsyncMock()
+    bot.send_document = AsyncMock()
     bot.send_invoice = AsyncMock()
     bot.get_chat = AsyncMock(return_value=MagicMock(first_name="TestUser"))
     bot.get_chat_member = AsyncMock()

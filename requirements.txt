@@ -4,6 +4,7 @@ aiogram~=3.22.0
 SQLAlchemy~=2.0.43
 alembic~=1.16.4
 aiohttp~=3.12.14
+aiohttp-socks~=0.10.1
 redis~=6.4.0
 
 # Database drivers
@@ -19,6 +20,7 @@ itsdangerous
 # Validation & Security
 pydantic~=2.5.0
 cryptography~=41.0.7
+typing_extensions>=4.0
 
 # Utils
 python-dateutil~=2.8.2

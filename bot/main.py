@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
 
@@ -15,6 +16,7 @@ from bot.handlers import register_all_handlers
 from bot.database.models import register_models
 from bot.logger_mesh import configure_logging
 from bot.middleware import setup_rate_limiting, RateLimitConfig
+from bot.middleware.i18n import LocaleMiddleware
 from bot.middleware.security import SecurityMiddleware, AuthenticationMiddleware
 from bot.misc.caching import init_cache_manager, get_cache_manager
 from bot.misc.caching import CacheScheduler
@@ -71,7 +73,7 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
     analytics_middleware = AnalyticsMiddleware(metrics)
 
     # Middleware execution order (last registered executes first):
-    # SecurityMiddleware -> AuthenticationMiddleware -> AnalyticsMiddleware -> RateLimitMiddleware -> Handler
+    # LocaleMiddleware -> SecurityMiddleware -> AuthenticationMiddleware -> AnalyticsMiddleware -> RateLimitMiddleware -> Handler
     dp.message.middleware(analytics_middleware)
     dp.callback_query.middleware(analytics_middleware)
 
@@ -81,7 +83,11 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
     dp.message.middleware(security_middleware)
     dp.callback_query.middleware(security_middleware)
 
-    logging.info("Security middleware initialized")
+    locale_middleware = LocaleMiddleware()
+    dp.message.middleware(locale_middleware)
+    dp.callback_query.middleware(locale_middleware)
+
+    logging.info("Security and locale middleware initialized")
 
     storage = get_redis_storage()
     if isinstance(storage, RedisStorage):
@@ -111,21 +117,24 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
     cleanup_manager = CleanupManager()
     await cleanup_manager.start()
 
-    # Start the admin web server
-    import uvicorn
-    from bot.web import create_admin_app
+    if EnvKeys.WEB_ADMIN_ENABLED == "1":
+        # Start the admin web server
+        import uvicorn
+        from bot.web import create_admin_app
 
-    admin_app = create_admin_app()
-    config = uvicorn.Config(
-        admin_app,
-        host=EnvKeys.ADMIN_HOST,
-        port=EnvKeys.ADMIN_PORT,
-        log_level="warning",
-    )
-    admin_server = uvicorn.Server(config)
-    asyncio.create_task(admin_server.serve())
+        admin_app = create_admin_app()
+        config = uvicorn.Config(
+            admin_app,
+            host=EnvKeys.ADMIN_HOST,
+            port=EnvKeys.ADMIN_PORT,
+            log_level="warning",
+        )
+        admin_server = uvicorn.Server(config)
+        asyncio.create_task(admin_server.serve())
 
-    logging.info(f"Recovery and admin panel initialized on {EnvKeys.ADMIN_HOST}:{EnvKeys.ADMIN_PORT}")
+        logging.info(f"Recovery and admin panel initialized on {EnvKeys.ADMIN_HOST}:{EnvKeys.ADMIN_PORT}")
+    else:
+        logging.info("Recovery initialized; web admin panel disabled by WEB_ADMIN_ENABLED=0")
 
 
 async def __on_shutdown(dp: Dispatcher, bot: Bot) -> None:
@@ -243,6 +252,8 @@ async def start_bot() -> None:
     dp = Dispatcher(storage=storage)
 
     # Create and run the bot
+    session = AiohttpSession(proxy=EnvKeys.BOT_PROXY_URL or None)
+
     async with Bot(
             token=EnvKeys.TOKEN,
             default=DefaultBotProperties(
@@ -250,6 +261,7 @@ async def start_bot() -> None:
                 link_preview_is_disabled=False,
                 protect_content=False,
             ),
+            session=session,
     ) as bot:
         # Getting information about the bot
         bot_info = await bot.get_me()
@@ -260,6 +272,7 @@ async def start_bot() -> None:
 
         allowed_updates = [
             "message",
+            "chat_member",
             "callback_query",
             "pre_checkout_query",
             "successful_payment"
@@ -268,6 +281,12 @@ async def start_bot() -> None:
         try:
             global webhook_active
             if EnvKeys.WEBHOOK_ENABLED == "1" and EnvKeys.WEBHOOK_URL:
+                if not admin_server:
+                    raise RuntimeError(
+                        "WEBHOOK_ENABLED requires WEB_ADMIN_ENABLED=1 because webhook delivery "
+                        "uses the built-in web server. Use polling mode when the web admin is disabled."
+                    )
+
                 # Webhook mode
                 webhook_path = EnvKeys.WEBHOOK_PATH or "/webhook"
                 webhook_url = f"{EnvKeys.WEBHOOK_URL}{webhook_path}"

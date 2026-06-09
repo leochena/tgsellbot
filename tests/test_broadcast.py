@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.exceptions import TelegramForbiddenError
 
@@ -127,3 +127,41 @@ class TestBroadcastManager:
         assert stats.end_time is not None
         assert stats.duration is not None
         assert stats.duration >= 0
+
+
+class TestAnnouncementBroadcastHandler:
+
+    @pytest.mark.asyncio
+    async def test_broadcast_handler_sends_group_announcement_only(self, make_message, fsm_context):
+        from bot.handlers.admin.broadcast import broadcast_messages
+
+        message = make_message(text="<b>Hello group</b>", user_id=999999)
+
+        with patch("bot.handlers.admin.broadcast.EnvKeys") as env:
+            env.ANNOUNCEMENT_CHAT_ID = "-1001234567890"
+            env.CHANNEL_ID = ""
+            env.CHANNEL_URL = ""
+
+            await broadcast_messages(message, fsm_context)
+
+        message.bot.send_message.assert_awaited_once()
+        kwargs = message.bot.send_message.await_args.kwargs
+        assert kwargs["chat_id"] == -1001234567890
+        assert kwargs["text"] == "<b>Hello group</b>"
+        message.answer.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_handler_requires_announcement_target(self, make_message, fsm_context):
+        from bot.handlers.admin.broadcast import broadcast_messages
+
+        message = make_message(text="Hello", user_id=999999)
+
+        with patch("bot.handlers.admin.broadcast.EnvKeys") as env:
+            env.ANNOUNCEMENT_CHAT_ID = ""
+            env.CHANNEL_ID = ""
+            env.CHANNEL_URL = ""
+
+            await broadcast_messages(message, fsm_context)
+
+        message.bot.send_message.assert_not_called()
+        message.answer.assert_awaited_once()

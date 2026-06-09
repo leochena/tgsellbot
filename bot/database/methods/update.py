@@ -6,7 +6,7 @@ from bot.database.methods.cache_utils import safe_create_task
 from bot.database.models import User, ItemValues, Goods, Categories, BoughtGoods, Role
 from bot.database.models.main import PromoCodes
 from bot.database import Database
-from bot.i18n import localize
+from bot.i18n import is_supported_locale, localize, normalize_locale
 
 
 async def set_role(telegram_id: int, role: int) -> None:
@@ -30,7 +30,31 @@ async def update_balance(telegram_id: int, summ: int) -> None:
     safe_create_task(invalidate_stats_cache())
 
 
-async def update_item(item_name: str, new_name: str, description: str, price, category: str) -> tuple[bool, str | None]:
+async def set_user_locale(telegram_id: int, locale: str) -> bool:
+    """Set user's preferred locale. Returns False for unsupported locale or missing user."""
+    normalized = normalize_locale(locale)
+    if not normalized or not is_supported_locale(normalized):
+        return False
+
+    async with Database().session() as s:
+        result = await s.execute(select(User).where(User.telegram_id == telegram_id))
+        user = result.scalars().first()
+        if not user:
+            return False
+        user.locale = normalized
+
+    await invalidate_user_cache(telegram_id)
+    return True
+
+
+async def update_item(
+    item_name: str,
+    new_name: str,
+    description: str,
+    price,
+    category: str,
+    points_price: int | None = None,
+) -> tuple[bool, str | None]:
     """
     Update a Goods record with proper locking. Now uses integer PKs.
     """
@@ -53,6 +77,8 @@ async def update_item(item_name: str, new_name: str, description: str, price, ca
             if new_name == item_name:
                 goods.description = description
                 goods.price = price
+                if points_price is not None:
+                    goods.points_price = max(int(points_price), 0)
                 goods.category_id = cat_id
                 return True, None
 
@@ -65,6 +91,8 @@ async def update_item(item_name: str, new_name: str, description: str, price, ca
             goods.name = new_name
             goods.description = description
             goods.price = price
+            if points_price is not None:
+                goods.points_price = max(int(points_price), 0)
             goods.category_id = cat_id
 
             await s.execute(

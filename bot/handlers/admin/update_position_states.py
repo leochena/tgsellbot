@@ -12,6 +12,7 @@ from bot.keyboards.inline import back, question_buttons, simple_buttons
 from bot.database.methods.audit import log_audit
 from bot.filters import HasPermissionFilter
 from bot.misc import EnvKeys
+from bot.misc.stock_format import normalize_stock_value
 from bot.i18n import localize
 from bot.states import UpdateItemFSM
 
@@ -68,11 +69,12 @@ async def updating_item_values(message: Message, state):
     """
     data = await state.get_data()
     values = data.get('item_values', [])
-    values.append(message.text)
+    value = normalize_stock_value(message.text)
+    values.append(value)
     await state.update_data(item_values=values)
 
     await message.answer(
-        localize('admin.goods.add.values.added', value=message.text, count=len(values)),
+        localize('admin.goods.add.values.added', value=value, count=len(values)),
         reply_markup=simple_buttons([
             (localize('btn.add_values_finish'), "finish_updating_items"),
             (localize('btn.back'), "goods_management")
@@ -187,7 +189,7 @@ async def update_item_name(message: Message, state):
 async def update_item_description(message: Message, state):
     """Ask for new price."""
     await state.update_data(item_description=message.text.strip())
-    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.PAY_CURRENCY),
+    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.BALANCE_CURRENCY),
                          reply_markup=back('goods_management'))
     await state.set_state(UpdateItemFSM.waiting_item_price)
 
@@ -280,7 +282,7 @@ async def update_item_infinity(message: Message, state):
     item_description = data.get('item_description')
     category = data.get('item_category')
     price = data.get('item_price')
-    value = message.text
+    value = normalize_stock_value(message.text)
 
     await delete_only_items(item_old_name)
     await add_values_to_item(item_old_name, value, True)
@@ -302,11 +304,12 @@ async def updating_item(message: Message, state):
     """
     data = await state.get_data()
     values = data.get('item_values', [])
-    values.append(message.text)
+    value = normalize_stock_value(message.text)
+    values.append(value)
     await state.update_data(item_values=values)
 
     await message.answer(
-        localize('admin.goods.add.values.added', value=message.text, count=len(values)),
+        localize('admin.goods.add.values.added', value=value, count=len(values)),
         reply_markup=simple_buttons([
             (localize('btn.add_values_finish'), "finish_update_item"),
             (localize('btn.back'), "goods_management")
@@ -394,3 +397,4 @@ async def update_item_no_infinity(call: CallbackQuery, state):
     await log_audit("update_item", user_id=call.from_user.id, resource_type="Item", resource_id=item_new_name,
                     details=f"admin={admin_info.first_name}, old_name={item_old_name}")
     await state.clear()
+

@@ -10,6 +10,7 @@ from bot.database.methods.delete import remove_from_cart, clear_cart
 from bot.database.methods.transactions import checkout_cart_transaction
 from bot.keyboards.inline import back, simple_buttons
 from bot.misc import EnvKeys
+from bot.misc.delivery_files import send_json_delivery_package
 from bot.i18n import localize
 
 router = Router()
@@ -49,20 +50,20 @@ async def _show_cart(call: CallbackQuery):
     for item in items:
         info = await get_item_info(item['item_name'])
         if not info:
-            lines.append(localize("cart.item", name=item['item_name'], price='?', currency=EnvKeys.PAY_CURRENCY))
+            lines.append(localize("cart.item", name=item['item_name'], price='?', currency=EnvKeys.BALANCE_CURRENCY))
             continue
 
         price = Decimal(str(info['price']))
         discounted = await _resolve_promo_price(price, item.get('promo_code'))
 
         if discounted is not None:
-            lines.append(f"🏷 <b>{item['item_name']}</b> — <s>{price}</s> {discounted} {EnvKeys.PAY_CURRENCY} ({item['promo_code']})")
+            lines.append(f"🏷 <b>{item['item_name']}</b> — <s>{price}</s> {discounted} {EnvKeys.BALANCE_CURRENCY} ({item['promo_code']})")
             real_total += discounted
         else:
-            lines.append(localize("cart.item", name=item['item_name'], price=price, currency=EnvKeys.PAY_CURRENCY))
+            lines.append(localize("cart.item", name=item['item_name'], price=price, currency=EnvKeys.BALANCE_CURRENCY))
             real_total += price
 
-    lines.append(localize("cart.total", total=real_total, currency=EnvKeys.PAY_CURRENCY))
+    lines.append(localize("cart.total", total=real_total, currency=EnvKeys.BALANCE_CURRENCY))
 
     buttons = []
     for item in items:
@@ -91,10 +92,12 @@ async def add_to_cart_handler(call: CallbackQuery, state: FSMContext):
     success, msg = await add_to_cart(call.from_user.id, item_name, promo_code=promo_code)
     if success:
         await call.answer(localize("cart.added", name=item_name))
+        await _show_cart(call)
     else:
         error_map = {
             "cart_full": localize("cart.full"),
             "item_not_found": localize("cart.item_not_found"),
+            "out_of_stock": localize("shop.out_of_stock"),
         }
         await call.answer(error_map.get(msg, msg), show_alert=True)
 
@@ -148,7 +151,7 @@ async def cart_checkout_handler(call: CallbackQuery, state: FSMContext):
         (localize("btn.no"), "cart"),
     ]
     await call.message.edit_text(
-        localize("cart.checkout_confirm", count=count, total=total, currency=EnvKeys.PAY_CURRENCY),
+        localize("cart.checkout_confirm", count=count, total=total, currency=EnvKeys.BALANCE_CURRENCY),
         reply_markup=simple_buttons(buttons),
     )
 
@@ -162,7 +165,7 @@ async def cart_checkout_confirm_handler(call: CallbackQuery, state: FSMContext):
 
     if not success:
         reason_map = {
-            "user_not_found": "User not found",
+            "user_not_found": localize("shop.purchase.fail.user_not_found"),
             "cart_empty": localize("cart.empty"),
             "cart_items_unavailable": localize("cart.items_unavailable"),
             "insufficient_funds": localize("shop.insufficient_funds"),
@@ -192,13 +195,19 @@ async def cart_checkout_confirm_handler(call: CallbackQuery, state: FSMContext):
             "cart.checkout_receipt",
             count=len(results),
             total=total,
-            currency=EnvKeys.PAY_CURRENCY,
+            currency=EnvKeys.BALANCE_CURRENCY,
             username=username,
             user_id=user_id,
             datetime=dt,
         ),
         parse_mode="HTML",
         reply_markup=simple_buttons(buttons),
+    )
+    await send_json_delivery_package(
+        call.message.bot,
+        user_id,
+        results,
+        caption="JSON 交付文件",
     )
 
     from bot.database.methods.audit import log_audit
@@ -237,7 +246,7 @@ async def cart_receipt_handler(call: CallbackQuery, state: FSMContext):
             "cart.checkout_receipt",
             count=len(results),
             total=total,
-            currency=EnvKeys.PAY_CURRENCY,
+            currency=EnvKeys.BALANCE_CURRENCY,
             username=username,
             user_id=call.from_user.id,
             datetime=dt,
@@ -245,3 +254,4 @@ async def cart_receipt_handler(call: CallbackQuery, state: FSMContext):
         parse_mode="HTML",
         reply_markup=simple_buttons(buttons),
     )
+

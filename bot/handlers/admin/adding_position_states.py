@@ -13,6 +13,7 @@ from bot.keyboards.inline import back, question_buttons, simple_buttons
 from bot.database.methods.audit import log_audit
 from bot.filters import HasPermissionFilter
 from bot.misc import EnvKeys
+from bot.misc.stock_format import normalize_stock_value
 from bot.i18n import localize
 from bot.states import AddItemFSM
 
@@ -53,7 +54,7 @@ async def add_item_description(message: Message, state):
     Save description and proceed to price input.
     """
     await state.update_data(item_description=(message.text or "").strip())
-    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.PAY_CURRENCY),
+    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.BALANCE_CURRENCY),
                          reply_markup=back('goods_management'))
     await state.set_state(AddItemFSM.waiting_item_price)
 
@@ -126,7 +127,7 @@ async def collect_item_value(message: Message, state):
     """
     data = await state.get_data()
     values = data.get('item_values', [])
-    value = (message.text or "")
+    value = normalize_stock_value(message.text)
     values.append(value)
     await state.update_data(item_values=values)
 
@@ -230,7 +231,7 @@ async def finish_adding_item_callback_handler(message: Message, state):
     item_price = data.get('item_price')
     category_name = data.get('item_category')
 
-    single_value = (message.text or "").strip()
+    single_value = normalize_stock_value(message.text)
     if not single_value:
         await message.answer(localize('admin.goods.add.single.empty'), reply_markup=back('goods_management'))
         return
@@ -266,3 +267,4 @@ async def finish_adding_item_callback_handler(message: Message, state):
     await log_audit("create_item", user_id=message.from_user.id, resource_type="Item", resource_id=item_name, details=f"admin={admin_info.first_name}, infinite=true")
 
     await state.clear()
+

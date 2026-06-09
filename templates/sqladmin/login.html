@@ -1,0 +1,58 @@
+{% extends "sqladmin/base.html" %}
+{% block body %}
+<div class="d-flex align-items-center justify-content-center vh-100">
+  <form class="Fcol-lg-6 col-md-6 card card-md" action="{{ url_for('admin:login') }}" method="POST" autocomplete="on">
+    <div class="card-body">
+      <h2 class="card-title text-center mb-4">{{ admin_t('admin_web.login.title', title=admin_t('admin_web.title')) }}</h2>
+      <div class="text-center mb-3">
+        <div class="btn-group btn-group-sm" role="group" aria-label="{{ admin_t('admin_web.language') }}">
+          <a class="btn {{ 'btn-primary' if admin_locale(request) == 'zh' else 'btn-outline-secondary' }}" href="{{ admin_language_url(request, 'zh') }}">{{ admin_t('admin_web.language.zh') }}</a>
+          <a class="btn {{ 'btn-primary' if admin_locale(request) == 'en' else 'btn-outline-secondary' }}" href="{{ admin_language_url(request, 'en') }}">{{ admin_t('admin_web.language.en') }}</a>
+        </div>
+      </div>
+      <div class="text-center mb-3">
+        <div class="small text-muted mb-1">{{ admin_t('admin_web.font_size') }}</div>
+        <div class="btn-group btn-group-sm admin-font-size-switch" role="group" aria-label="{{ admin_t('admin_web.font_size') }}">
+          {% for size in [12, 14, 16, 18] %}
+          <a class="btn {{ 'btn-primary' if admin_font_size(request) == size else 'btn-outline-secondary' }}" href="{{ admin_font_size_url(request, size) }}">{{ admin_t('admin_web.font_size.option', size=size) }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ admin_t('admin_web.login.username') }}</label>
+        {% if error %}
+        <input name="username" type="text" class="form-control is-invalid" placeholder="{{ admin_t('admin_web.login.username_placeholder') }}"
+          autocomplete="username">
+        <div class="invalid-feedback">{{ error }}</div>
+        {% else %}
+        <input name="username" type="text" class="form-control" placeholder="{{ admin_t('admin_web.login.username_placeholder') }}" autocomplete="username">
+        {% endif %}
+      </div>
+      <div class="mb-2">
+        <label class="form-label">
+          {{ admin_t('admin_web.login.password') }}
+        </label>
+        <div class="input-group input-group-flat">
+          {% if error %}
+          <input name="password" type="password" class="form-control is-invalid" placeholder="{{ admin_t('admin_web.login.password_placeholder') }}"
+            autocomplete="current-password">
+          <div class="invalid-feedback">{{ error }}</div>
+          {% else %}
+          <input name="password" type="password" class="form-control" placeholder="{{ admin_t('admin_web.login.password_placeholder') }}" autocomplete="current-password">
+          {% endif %}
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-check">
+          <input class="form-check-input" type="checkbox" name="remember" value="1" checked>
+          <span class="form-check-label">{{ admin_t('admin_web.login.remember') }}</span>
+        </label>
+        <div class="form-hint">{{ admin_t('admin_web.login.remember_hint') }}</div>
+      </div>
+      <div class="form-footer">
+        <button type="submit" class="btn btn-primary w-100">{{ admin_t('admin_web.login.submit') }}</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

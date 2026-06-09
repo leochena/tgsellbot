@@ -6,6 +6,7 @@ from bot.database.main import Database
 import pytest
 
 from bot.database.methods.transactions import buy_item_transaction, \
+    redeem_item_with_points_transaction, \
     process_payment_with_referral, \
     admin_balance_change
 from bot.database.methods.create import create_pending_payment
@@ -18,6 +19,14 @@ async def _get_balance(telegram_id: int) -> float:
         result = await s.execute(select(User).where(User.telegram_id == telegram_id))
         user = result.scalars().one()
         return float(user.balance)
+
+
+async def _get_points_balance(telegram_id: int) -> int:
+    """Read user points directly from DB to avoid cache issues."""
+    async with Database().session() as s:
+        result = await s.execute(select(User).where(User.telegram_id == telegram_id))
+        user = result.scalars().one()
+        return int(user.points_balance or 0)
 
 
 class TestBuyItemTransaction:
@@ -151,6 +160,42 @@ class TestBuyItemTransaction:
             ))).scalar()
             assert iv_count == 0
 
+    async def test_buy_item_quantity_success(self, user_factory, item_factory):
+        await user_factory(telegram_id=100008, balance=1000)
+        await item_factory(
+            name="Bulk",
+            price=100,
+            values=[("b1", False), ("b2", False), ("b3", False)],
+        )
+
+        success, msg, data = await buy_item_transaction(100008, "Bulk", quantity=2)
+
+        assert success is True
+        assert msg == "success"
+        assert data["quantity"] == 2
+        assert data["total_price"] == 200.0
+        assert len(data["purchases"]) == 2
+        assert sorted(item["value"] for item in data["purchases"]) == ["b1", "b2"]
+        assert await _get_balance(100008) == 800.0
+
+        async with Database().session() as s:
+            goods = (await s.execute(select(Goods).where(Goods.name == "Bulk"))).scalars().one()
+            remaining = (await s.execute(select(func.count()).select_from(ItemValues).where(
+                ItemValues.item_id == goods.id
+            ))).scalar()
+        assert remaining == 1
+
+    async def test_buy_item_quantity_out_of_stock(self, user_factory, item_factory):
+        await user_factory(telegram_id=100009, balance=1000)
+        await item_factory(name="OneLeft", price=100, values=[("only", False)])
+
+        success, msg, data = await buy_item_transaction(100009, "OneLeft", quantity=2)
+
+        assert success is False
+        assert msg == "out_of_stock"
+        assert data is None
+        assert await _get_balance(100009) == 1000.0
+
     async def test_buy_item_exact_balance(self, user_factory, item_factory):
         await user_factory(telegram_id=100007, balance=100)
         await item_factory(name="Exact", price=100, values=[("exactval", False)])
@@ -162,6 +207,110 @@ class TestBuyItemTransaction:
         assert data["new_balance"] == 0.0
 
         assert await _get_balance(100007) == 0.0
+
+
+class TestRedeemItemWithPointsTransaction:
+
+    async def test_redeem_item_with_points_success(self, user_factory, item_factory):
+        await user_factory(telegram_id=110001, balance=500, points_balance=12)
+        await item_factory(name="PointsWidget", price=100, points_price=5, values=[("point-val", False)])
+
+        success, msg, data = await redeem_item_with_points_transaction(110001, "PointsWidget")
+
+        assert success is True
+        assert msg == "success"
+        assert data is not None
+        assert data["item_name"] == "PointsWidget"
+        assert data["value"] == "point-val"
+        assert data["price"] == 0.0
+        assert data["points_price"] == 5
+        assert data["new_points_balance"] == 7
+        assert data["payment_method"] == "points"
+        assert await _get_balance(110001) == 500.0
+        assert await _get_points_balance(110001) == 7
+
+        async with Database().session() as s:
+            bought = (await s.execute(select(BoughtGoods).where(
+                BoughtGoods.buyer_id == 110001
+            ))).scalars().one()
+            assert bought.item_name == "PointsWidget"
+            assert bought.value == "point-val"
+            assert float(bought.price) == 0.0
+
+            goods = (await s.execute(select(Goods).where(Goods.name == "PointsWidget"))).scalars().one()
+            remaining_stock = (await s.execute(select(func.count()).select_from(ItemValues).where(
+                ItemValues.item_id == goods.id
+            ))).scalar()
+            assert remaining_stock == 0
+
+    async def test_redeem_item_with_points_insufficient_points(self, user_factory, item_factory):
+        await user_factory(telegram_id=110002, points_balance=4)
+        await item_factory(name="NeedPoints", price=100, points_price=5, values=[("stock-val", False)])
+
+        success, msg, data = await redeem_item_with_points_transaction(110002, "NeedPoints")
+
+        assert success is False
+        assert msg == "insufficient_points"
+        assert data is None
+        assert await _get_points_balance(110002) == 4
+
+        async with Database().session() as s:
+            goods = (await s.execute(select(Goods).where(Goods.name == "NeedPoints"))).scalars().one()
+            remaining_stock = (await s.execute(select(func.count()).select_from(ItemValues).where(
+                ItemValues.item_id == goods.id
+            ))).scalar()
+            bought_count = (await s.execute(select(func.count()).select_from(BoughtGoods).where(
+                BoughtGoods.buyer_id == 110002
+            ))).scalar()
+            assert remaining_stock == 1
+            assert bought_count == 0
+
+    async def test_redeem_item_without_points_price_fails(self, user_factory, item_factory):
+        await user_factory(telegram_id=110003, points_balance=20)
+        await item_factory(name="CashOnly", price=100, points_price=0, values=[("cash-only-val", False)])
+
+        success, msg, data = await redeem_item_with_points_transaction(110003, "CashOnly")
+
+        assert success is False
+        assert msg == "points_not_available"
+        assert data is None
+        assert await _get_points_balance(110003) == 20
+
+    async def test_redeem_item_with_points_quantity_success(self, user_factory, item_factory):
+        await user_factory(telegram_id=110004, points_balance=20)
+        await item_factory(
+            name="MultiPoints",
+            price=100,
+            points_price=5,
+            points_max_per_redeem=3,
+            values=[("v1", False), ("v2", False), ("v3", False)],
+        )
+
+        success, msg, data = await redeem_item_with_points_transaction(110004, "MultiPoints", quantity=2)
+
+        assert success is True
+        assert msg == "success"
+        assert data["quantity"] == 2
+        assert data["total_points"] == 10
+        assert len(data["purchases"]) == 2
+        assert await _get_points_balance(110004) == 10
+
+    async def test_redeem_item_with_points_quantity_limit(self, user_factory, item_factory):
+        await user_factory(telegram_id=110005, points_balance=50)
+        await item_factory(
+            name="LimitedPoints",
+            price=100,
+            points_price=5,
+            points_max_per_redeem=2,
+            values=[("v1", False), ("v2", False), ("v3", False)],
+        )
+
+        success, msg, data = await redeem_item_with_points_transaction(110005, "LimitedPoints", quantity=3)
+
+        assert success is False
+        assert msg == "points_quantity_exceeded"
+        assert data["max_per_redeem"] == 2
+        assert await _get_points_balance(110005) == 50
 
 
 class TestProcessPaymentWithReferral:

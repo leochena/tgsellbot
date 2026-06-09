@@ -6,6 +6,7 @@ from sqlalchemy import select
 from bot.database.methods.create import (
     create_user, create_item, add_values_to_item,
     create_operation, create_pending_payment, create_referral_earning,
+    add_to_cart,
 )
 from bot.database.methods.read import (
     check_user, check_role, get_role_id_by_name,
@@ -25,10 +26,11 @@ from bot.database.methods.read import (
     select_users_balance,
     get_all_roles, get_role_by_id, get_roles_with_max_perms,
     count_users_with_role,
+    get_user_locale,
 )
 from bot.database.methods.update import (
     update_balance, set_role, set_user_blocked,
-    is_user_blocked, update_item, update_category,
+    is_user_blocked, update_item, update_category, set_user_locale,
 )
 from bot.database.methods.delete import (
     delete_item, delete_only_items,
@@ -85,6 +87,19 @@ class TestUserCRUD:
         await user_factory(telegram_id=6002, referral_id=6001)
         ref = await get_user_referral(6002)
         assert ref == 6001
+
+    async def test_set_and_get_user_locale(self, user_factory):
+        await user_factory(telegram_id=6101)
+        assert await get_user_locale(6101) is None
+
+        assert await set_user_locale(6101, "en") is True
+        assert await get_user_locale(6101) == "en"
+
+    async def test_set_user_locale_rejects_unsupported(self, user_factory):
+        await user_factory(telegram_id=6102)
+        assert await set_user_locale(6102, "xx") is False
+        user = await check_user(6102)
+        assert user["locale"] is None
 
 
 class TestRoleCRUD:
@@ -279,6 +294,24 @@ class TestItemCRUD:
             iv_id = iv.id
         await delete_item_from_position(iv_id)
         assert await select_item_values_amount("PosItem") == 1
+
+    async def test_add_to_cart_rejects_out_of_stock_item(self, user_factory, item_factory):
+        await user_factory(telegram_id=7301)
+        await item_factory(name="NoStockCart", category="CartCat", values=None)
+
+        ok, msg = await add_to_cart(7301, "NoStockCart")
+
+        assert ok is False
+        assert msg == "out_of_stock"
+
+    async def test_add_to_cart_accepts_stocked_item(self, user_factory, item_factory):
+        await user_factory(telegram_id=7302)
+        await item_factory(name="StockCart", category="CartCat", values=[("cart-stock", False)])
+
+        ok, msg = await add_to_cart(7302, "StockCart")
+
+        assert ok is True
+        assert msg == "success"
 
 
 class TestBalanceOperations:

@@ -1,17 +1,19 @@
 import logging
 from contextlib import asynccontextmanager
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 
 from bot.database.dsn import dsn
-from bot.misc import SingletonMeta
+from bot.misc import EnvKeys, SingletonMeta
 
 
 class Database(metaclass=SingletonMeta):
     BASE = declarative_base()
 
     def __init__(self):
+        schema = EnvKeys.POSTGRES_SCHEMA
         self.__engine: AsyncEngine = create_async_engine(
             dsn(),
             echo=False,
@@ -26,7 +28,7 @@ class Database(metaclass=SingletonMeta):
                 "timeout": 10,
                 "command_timeout": 30,
                 "server_settings": {
-                    "lc_messages": "C",
+                    "search_path": schema,
                 },
             },
         )

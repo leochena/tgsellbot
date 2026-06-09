@@ -8,3 +8,4 @@ from .role_state import RoleMgmtFSM
 from .promo_state import PromoFSM
 from .cart_state import CartStates
 from .review_state import ReviewFSM
+from .lottery_state import LotteryAdminStates

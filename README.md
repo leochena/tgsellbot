@@ -304,8 +304,9 @@ The application requires the following environment variables:
 |---------------------------|----------------------------------------------------------------------------------------------|---------|
 | `TELEGRAM_PROVIDER_TOKEN` | [Token for Telegram Payments](https://core.telegram.org/bots/payments#getting-a-token)       | -       |
 | `CRYPTO_PAY_TOKEN`        | [CryptoPay API token](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7) | -       |
-| `STARS_PER_VALUE`         | Stars exchange rate (0 to disable)                                                           | `0.91`  |
-| `PAY_CURRENCY`            | Display currency (RUB, USD, EUR, etc.)                                                       | `RUB`   |
+| `STARS_PER_VALUE`         | Stars exchange rate for internal balance top-ups (0 to disable)                               | `0.91`  |
+| `PAY_CURRENCY`            | Real provider currency code (RUB, USD, EUR, etc.)                                            | `RUB`   |
+| `BALANCE_CURRENCY`        | Internal balance unit shown to users, for example UStars                                      | `UStars`|
 | `REFERRAL_PERCENT`        | Referral commission percentage                                                               | `0`     |
 | `PAYMENT_TIME`            | Invoice validity in seconds                                                                  | `1800`  |
 | `MIN_AMOUNT`              | Minimum payment amount                                                                       | `20`    |

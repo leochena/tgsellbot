@@ -47,7 +47,11 @@ async def send_stars_invoice(
     await bot.send_invoice(
         chat_id=chat_id,
         title=title or localize("payments.invoice.title.topup"),
-        description=description or localize("payments.invoice.desc.topup.stars", amount=int(amount), currency=EnvKeys.PAY_CURRENCY),
+        description=description or localize(
+            "payments.invoice.desc.topup.stars",
+            amount=int(amount),
+            currency=EnvKeys.BALANCE_CURRENCY,
+        ),
         payload=json.dumps(payload),
         provider_token="",
         currency="XTR",

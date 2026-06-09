@@ -1,9 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import select, exists
+from sqlalchemy import select, exists, func
 
 from bot.database.models import User, ItemValues, Goods, Categories, Operations, Payments, ReferralEarnings, Role
+from bot.database.models.main import stock_value_hash
 from bot.database.models.main import PromoCodes, CartItems, Reviews
 from bot.database import Database
 from bot.database.methods.cache_utils import safe_create_task
@@ -26,7 +27,13 @@ async def create_user(telegram_id: int, registration_date: datetime, referral_id
         )
 
 
-async def create_item(item_name: str, item_description: str, item_price: int, category_name: str) -> None:
+async def create_item(
+    item_name: str,
+    item_description: str,
+    item_price: int,
+    category_name: str,
+    points_price: int = 0,
+) -> None:
     """Insert item (goods); commit. Resolves category_name to category_id."""
     async with Database().session() as s:
         result = await s.execute(select(exists().where(Goods.name == item_name)))
@@ -40,6 +47,7 @@ async def create_item(item_name: str, item_description: str, item_price: int, ca
                 name=item_name,
                 description=item_description,
                 price=item_price,
+                points_price=points_price,
                 category_id=cat,
             )
         )
@@ -61,7 +69,7 @@ async def add_values_to_item(item_name: str, value: str, is_infinity: bool) -> b
         dup = (await s.execute(
             select(exists().where(
                 ItemValues.item_id == item_id,
-                ItemValues.value == value_norm,
+                ItemValues.value_hash == stock_value_hash(value_norm),
             ))
         )).scalar()
         if dup:
@@ -144,12 +152,15 @@ async def create_promo_code(
 ) -> int | None:
     """Create a promo code. Returns ID or None if code already exists."""
     from decimal import Decimal
+    normalized_code = str(code or "").strip().upper()
+    if not normalized_code:
+        return None
     async with Database().session() as s:
-        result = await s.execute(select(exists().where(PromoCodes.code == code.upper())))
+        result = await s.execute(select(exists().where(func.upper(PromoCodes.code) == normalized_code)))
         if result.scalar():
             return None
         promo = PromoCodes(
-            code=code.upper(),
+            code=normalized_code,
             discount_type=discount_type,
             discount_value=Decimal(str(discount_value)),
             max_uses=max_uses,
@@ -179,6 +190,15 @@ async def add_to_cart(user_id: int, item_name: str, promo_code: str = None) -> t
         )).scalar()
         if not item_exists:
             return False, "item_not_found"
+
+        has_stock = (await s.execute(
+            select(exists().where(
+                ItemValues.item_id == Goods.id,
+                Goods.name == item_name,
+            ))
+        )).scalar()
+        if not has_stock:
+            return False, "out_of_stock"
 
         s.add(CartItems(user_id=user_id, item_name=item_name, promo_code=promo_code))
         return True, "success"

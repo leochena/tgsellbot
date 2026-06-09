@@ -1,7 +1,8 @@
 from bot.keyboards.inline import (
     main_menu, profile_keyboard, simple_buttons, back, close, item_info, payment_menu,
     get_payment_choice, question_buttons, check_sub, referral_system_keyboard,
-    admin_console_keyboard,
+    admin_console_keyboard, lottery_admin_keyboard, lottery_keyboard,
+    language_keyboard,
 )
 
 
@@ -40,7 +41,12 @@ class TestMainMenu:
         cbs = _all_callback_data(markup)
         assert "shop" in cbs
         assert "rules" in cbs
+        assert "checkin" in cbs
+        assert "lottery" in cbs
         assert "profile" in cbs
+        assert "cart" in cbs
+        assert "redeem_balance_promo" in cbs
+        assert "language_settings" in cbs
 
     def test_no_admin_for_regular_user(self):
         markup = main_menu(role=1)
@@ -54,7 +60,14 @@ class TestMainMenu:
 
     def test_channel_button(self):
         markup = main_menu(role=1, channel="test_channel")
-        assert _has_url_button(markup)
+        cbs = _all_callback_data(markup)
+        assert "group_invite_link" in cbs
+
+    def test_group_invite_button_is_tracked_callback(self):
+        markup = main_menu(role=1, channel="https://t.me/gpt_free_plus_team")
+        cbs = _all_callback_data(markup)
+        assert "group_invite_link" in cbs
+        assert not _has_url_button(markup)
 
     def test_helper_button(self):
         markup = main_menu(role=1, helper="12345")
@@ -97,6 +110,38 @@ class TestProfileKeyboard:
         cbs = _all_callback_data(markup)
         assert "back_to_menu" in cbs
 
+    def test_language_button_present(self):
+        markup = profile_keyboard(referral_percent=0)
+        cbs = _all_callback_data(markup)
+        assert "language_settings" in cbs
+
+
+class TestLanguageKeyboard:
+
+    def test_language_choices_present(self):
+        markup = language_keyboard("en")
+        cbs = _all_callback_data(markup)
+        assert "set_locale:ru" in cbs
+        assert "set_locale:en" in cbs
+        assert "set_locale:zh" in cbs
+        assert "back_to_menu" in cbs
+
+
+class TestLotteryKeyboard:
+
+    def test_lottery_keyboard_active_has_checkin(self):
+        markup = lottery_keyboard(True)
+        cbs = _all_callback_data(markup)
+        assert "checkin" in cbs
+        assert "back_to_menu" in cbs
+
+    def test_lottery_admin_keyboard_active_has_actions(self):
+        markup = lottery_admin_keyboard(1)
+        cbs = _all_callback_data(markup)
+        assert "lottery_admin_create" in cbs
+        assert "lottery_admin_draw:1" in cbs
+        assert "lottery_admin_close:1" in cbs
+
 
 class TestPaymentMenu:
 
@@ -121,7 +166,29 @@ class TestItemInfoKeyboard:
         markup = item_info("Widget", "gp_0")
         cbs = _all_callback_data(markup)
         assert "buy" in cbs
+        assert "add_to_cart" in cbs
+        assert "cart" in cbs
         assert "gp_0" in cbs
+
+    def test_out_of_stock_hides_purchase_actions(self):
+        markup = item_info("Widget", "gp_0", in_stock=False)
+        cbs = _all_callback_data(markup)
+        assert "buy" not in cbs
+        assert "add_to_cart" not in cbs
+        assert "cart" in cbs
+        assert "noop" in cbs
+
+    def test_points_price_adds_redeem_button(self):
+        markup = item_info("Widget", "gp_0", points_price=10)
+        cbs = _all_callback_data(markup)
+        assert "buy" in cbs
+        assert "redeem_points" in cbs
+
+    def test_points_redeem_limit_uses_quantity_picker(self):
+        markup = item_info("Widget", "gp_0", points_price=10, points_max_per_redeem=3)
+        cbs = _all_callback_data(markup)
+        assert "redeem_points_choose" in cbs
+        assert "redeem_points" not in cbs
 
 
 class TestSimpleButtons:

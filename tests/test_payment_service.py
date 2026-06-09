@@ -78,6 +78,7 @@ class TestSendStarsInvoice:
         with patch('bot.misc.services.payment.EnvKeys') as env:
             env.STARS_PER_VALUE = 0.91
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await send_stars_invoice(bot, chat_id=123, amount=100)
 
         bot.send_invoice.assert_called_once()
@@ -95,10 +96,28 @@ class TestSendStarsInvoice:
         with patch('bot.misc.services.payment.EnvKeys') as env:
             env.STARS_PER_VALUE = 0.91
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await send_stars_invoice(bot, chat_id=123, amount=100)
 
         prices = bot.send_invoice.call_args[1]['prices']
         assert prices[0].amount == math.ceil(100 * 0.91)
+
+    @pytest.mark.asyncio
+    async def test_stars_invoice_description_uses_balance_currency(self):
+        from bot.misc.services.payment import send_stars_invoice
+
+        bot = AsyncMock()
+
+        with patch('bot.misc.services.payment.EnvKeys') as env:
+            env.STARS_PER_VALUE = 0.91
+            env.PAY_CURRENCY = "USD"
+            env.BALANCE_CURRENCY = "UStars"
+            await send_stars_invoice(bot, chat_id=123, amount=100)
+
+        call_kwargs = bot.send_invoice.call_args[1]
+        assert call_kwargs['currency'] == "XTR"
+        assert "UStars" in call_kwargs['description']
+        assert "USD" not in call_kwargs['description']
 
 
 class TestSendFiatInvoice:

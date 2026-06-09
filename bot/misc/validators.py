@@ -1,5 +1,6 @@
 from decimal import Decimal
-from typing import Optional, Annotated, Self
+from typing import Optional, Annotated
+from typing_extensions import Self
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 import re
 

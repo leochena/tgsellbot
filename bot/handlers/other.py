@@ -29,6 +29,12 @@ async def dummy_button(call: CallbackQuery):
     await call.answer("")
 
 
+@router.callback_query(F.data == 'noop')
+async def noop_button(call: CallbackQuery):
+    """Static inline button."""
+    await call.answer("")
+
+
 async def check_sub_channel(chat_member) -> bool:
     """channel subscription check"""
     return chat_member.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED)

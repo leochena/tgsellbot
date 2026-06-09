@@ -18,6 +18,7 @@ class CleanupManager:
         logger.info("Starting cleanup manager...")
         self.running = True
         self.tasks.append(asyncio.create_task(self._safe_run(self.daily_cleanup)))
+        self.tasks.append(asyncio.create_task(self._safe_run(self.lottery_auto_draw)))
 
     async def stop(self):
         self.running = False
@@ -79,3 +80,19 @@ class CleanupManager:
 
             except Exception as e:
                 logger.error(f"Daily cleanup failed: {e}", exc_info=True)
+
+    async def lottery_auto_draw(self):
+        while self.running:
+            try:
+                from bot.database.methods.engagement import check_auto_draw_lotteries
+                results = await check_auto_draw_lotteries()
+                for result in results:
+                    logger.info(
+                        "Auto lottery draw checked: event=%s success=%s message=%s",
+                        result.get("event_id"),
+                        result.get("success"),
+                        result.get("message"),
+                    )
+            except Exception as e:
+                logger.error(f"Lottery auto draw failed: {e}", exc_info=True)
+            await asyncio.sleep(60)

@@ -44,7 +44,7 @@ async def referral_callback_handler(call: CallbackQuery, state: FSMContext):
                                   total_earned=int(earnings_stats['total_amount']),
                                   total_original=int(earnings_stats['total_original_amount']),
                                   earnings_count=earnings_stats['total_earnings_count'],
-                                  currency=EnvKeys.PAY_CURRENCY
+                                  currency=EnvKeys.BALANCE_CURRENCY
                                   )
 
     markup = referral_system_keyboard(has_referrals, has_earnings)
@@ -77,7 +77,7 @@ async def view_referrals_handler(call: CallbackQuery, state: FSMContext):
         item_text=lambda referral_data: localize("referrals.item.format",
                                                  telegram_id=referral_data['telegram_id'],
                                                  total_earned=int(referral_data['total_earned']),
-                                                 currency=EnvKeys.PAY_CURRENCY),
+                                                 currency=EnvKeys.BALANCE_CURRENCY),
         item_callback=lambda referral_data: f"referral_earnings_{referral_data['telegram_id']}",
         page=0,
         back_cb="referral_system",
@@ -119,7 +119,7 @@ async def referrals_pagination_handler(call: CallbackQuery, state: FSMContext):
         item_text=lambda referral_data: localize("referrals.item.format",
                                                  telegram_id=referral_data['telegram_id'],
                                                  total_earned=int(referral_data['total_earned']),
-                                                 currency=EnvKeys.PAY_CURRENCY),
+                                                 currency=EnvKeys.BALANCE_CURRENCY),
         item_callback=lambda referral_data: f"referral_earnings_{referral_data['telegram_id']}",
         page=page,
         back_cb="referral_system",
@@ -166,7 +166,7 @@ async def referral_earnings_handler(call: CallbackQuery, state: FSMContext):
         paginator=paginator,
         item_text=lambda earning: localize("referral.earning.format",
                                            amount=int(earning.amount),
-                                           currency=EnvKeys.PAY_CURRENCY,
+                                           currency=EnvKeys.BALANCE_CURRENCY,
                                            date=earning.created_at.strftime("%d.%m.%Y %H:%M"),
                                            original_amount=int(earning.original_amount)),
         item_callback=lambda earning: f"earning_detail:{earning.id}:referral_earnings_{referral_id}",
@@ -207,7 +207,7 @@ async def view_all_earnings_handler(call: CallbackQuery, state: FSMContext):
         paginator=paginator,
         item_text=lambda earning: localize("all.earning.format",
                                            amount=int(earning.amount),
-                                           currency=EnvKeys.PAY_CURRENCY,
+                                           currency=EnvKeys.BALANCE_CURRENCY,
                                            referral_id=earning.referral_id,
                                            date=earning.created_at.strftime("%d.%m.%Y %H:%M")),
         item_callback=lambda earning: f"earning_detail:{earning.id}:view_all_earnings",
@@ -250,7 +250,7 @@ async def all_earnings_pagination_handler(call: CallbackQuery, state: FSMContext
         paginator=paginator,
         item_text=lambda earning: localize("all.earning.format",
                                            amount=int(earning.amount),
-                                           currency=EnvKeys.PAY_CURRENCY,
+                                           currency=EnvKeys.BALANCE_CURRENCY,
                                            referral_id=earning.referral_id,
                                            date=earning.created_at.strftime("%d.%m.%Y %H:%M")),
         item_callback=lambda earning: f"earning_detail:{earning.id}:all_earnings_page_{page}",
@@ -282,8 +282,9 @@ async def referral_callback_handler(call: CallbackQuery, state: FSMContext):
                                           telegram_id=earning_info['referral_id'],
                                           name=user_info.first_name,
                                           amount=earning_info['amount'],
-                                          currency=EnvKeys.PAY_CURRENCY,
+                                          currency=EnvKeys.BALANCE_CURRENCY,
                                           date=earning_info['created_at'].strftime("%d.%m.%Y %H:%M"),
                                           original_amount=earning_info['original_amount']
                                           ), reply_markup=back(back_data))
     await state.clear()
+

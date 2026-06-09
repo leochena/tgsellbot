@@ -431,6 +431,12 @@ async def check_user_cached(telegram_id: int | str):
     return await check_user(telegram_id)
 
 
+async def get_user_locale(telegram_id: int | str) -> str | None:
+    """Return user's preferred locale, or None when unset/user missing."""
+    user = await check_user_cached(telegram_id)
+    return user.get("locale") if user else None
+
+
 @async_cached(ttl=300, key_prefix="role")
 async def check_role_cached(telegram_id: int):
     """Cached Role Verification"""
@@ -512,8 +518,11 @@ async def invalidate_stats_cache():
 
 async def get_promo_code(code: str) -> dict | None:
     """Return promo code by code string, or None."""
+    normalized_code = str(code or "").strip().upper()
+    if not normalized_code:
+        return None
     async with Database().session() as s:
-        result = await s.execute(select(PromoCodes).where(PromoCodes.code == code.upper()))
+        result = await s.execute(select(PromoCodes).where(func.upper(PromoCodes.code) == normalized_code))
         obj = result.scalars().first()
         return _obj_to_dict(obj, PromoCodes) if obj else None
 
@@ -525,9 +534,10 @@ async def validate_promo_for_item(
     Validate a promo code for a specific item and user.
     Returns (valid, error_key, promo_dict).
     """
+    normalized_code = str(code or "").strip().upper()
     async with Database().session() as s:
         promo = (await s.execute(
-            select(PromoCodes).where(PromoCodes.code == code.upper())
+            select(PromoCodes).where(func.upper(PromoCodes.code) == normalized_code)
         )).scalars().first()
 
         if not promo:

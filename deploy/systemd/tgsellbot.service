@@ -1,0 +1,19 @@
+[Unit]
+Description=TGSellBot Telegram auto-sales bot
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tgsellbot
+EnvironmentFile=/opt/tgsellbot/.env
+ExecStart=/opt/tgsellbot/.venv/bin/python /opt/tgsellbot/run.py
+Restart=always
+RestartSec=5
+User=tgsellbot
+Group=tgsellbot
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

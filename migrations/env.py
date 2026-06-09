@@ -7,12 +7,13 @@ load_dotenv(env_path, encoding='utf-8')
 
 from logging.config import fileConfig
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import bot.database.models.main  # noqa: F401
 from bot.database.main import Database
 from bot.database.dsn import dsn
+from bot.misc import EnvKeys
 
 config = context.config
 if config.config_file_name:
@@ -39,15 +40,29 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
 
 async def run_migrations_online_async() -> None:
-    connectable = create_async_engine(dsn(), poolclass=pool.NullPool)
+    connectable = create_async_engine(
+        dsn(),
+        poolclass=pool.NullPool,
+        connect_args={
+            "server_settings": {
+                "search_path": EnvKeys.POSTGRES_SCHEMA,
+            },
+        },
+    )
 
-    async with connectable.connect() as connection:
+    async with connectable.begin() as connection:
+        if EnvKeys.POSTGRES_SCHEMA != "public":
+            await connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{EnvKeys.POSTGRES_SCHEMA}"'))
+            await connection.execute(text(f'SET search_path TO "{EnvKeys.POSTGRES_SCHEMA}"'))
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()

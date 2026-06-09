@@ -2,6 +2,7 @@ import time
 
 import pytest
 
+from bot.middleware.i18n import LocaleMiddleware
 from bot.middleware.security import check_suspicious_patterns, SecurityMiddleware, AuthenticationMiddleware
 from bot.middleware.rate_limit import RateLimiter, RateLimitConfig
 
@@ -182,6 +183,23 @@ class TestAuthenticationMiddleware:
     async def test_block_nonexistent_user(self):
         result = await self.auth.block_user(999999999)
         assert result is False
+
+
+class TestLocaleMiddleware:
+
+    async def test_sets_user_locale_for_handler(self, make_callback_query, user_factory):
+        from bot.database.methods.update import set_user_locale
+        from bot.i18n import get_locale
+
+        await user_factory(telegram_id=200010)
+        await set_user_locale(200010, "en")
+        middleware = LocaleMiddleware()
+        call = make_callback_query(data="profile", user_id=200010)
+
+        async def handler(event, data):
+            return get_locale()
+
+        assert await middleware(handler, call, {}) == "en"
 
 
 class TestPermissionHasAnyAdminPerm:

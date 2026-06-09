@@ -133,7 +133,7 @@ async def statistics_callback_handler(call: CallbackQuery):
             goods=global_stats['total_goods'],
             categories=await select_count_categories(),
             sold_count=await select_count_bought_items(),
-            currency=EnvKeys.PAY_CURRENCY
+            currency=EnvKeys.BALANCE_CURRENCY
         )
 
     else:
@@ -155,7 +155,7 @@ async def statistics_callback_handler(call: CallbackQuery):
             goods=await select_count_goods(),
             categories=await select_count_categories(),
             sold_count=await select_count_bought_items(),
-            currency=EnvKeys.PAY_CURRENCY
+            currency=EnvKeys.BALANCE_CURRENCY
         )
 
     # Append role breakdown
@@ -259,8 +259,8 @@ async def show_user_info(call: CallbackQuery):
     text = (
         f"{localize('profile.caption', name=user_info.first_name, id=user_id)}\n\n"
         f"{localize('profile.id', id=user_id)}\n"
-        f"{localize('profile.balance', amount=user.get('balance'), currency=EnvKeys.PAY_CURRENCY)}\n"
-        f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY)}\n"
+        f"{localize('profile.balance', amount=user.get('balance'), currency=EnvKeys.BALANCE_CURRENCY)}\n"
+        f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.BALANCE_CURRENCY)}\n"
         f"{localize('profile.purchased_count', count=items)}\n\n"
         f"{localize('profile.referral_id', id=user.get('referral_id'))}\n"
         f"{localize('admin.users.referrals', count=referrals)}\n"
@@ -310,7 +310,7 @@ async def process_item_show(message: Message, state: FSMContext):
 
             text = (
                 f"{localize('purchases.item.name', name=item['item_name'])}\n"
-                f"{localize('purchases.item.price', amount=item['price'], currency=EnvKeys.PAY_CURRENCY)}\n"
+                f"{localize('purchases.item.price', amount=item['price'], currency=EnvKeys.BALANCE_CURRENCY)}\n"
                 f"{localize('purchases.item.datetime', dt=item['bought_datetime'])}\n"
                 f"{localize('purchases.item.buyer', buyer=item['buyer_id'])}\n"
                 f"{localize('purchases.item.unique_id', uid=item['unique_id'])}\n"
@@ -331,3 +331,4 @@ async def process_item_show(message: Message, state: FSMContext):
         await log_audit("search_error", level="ERROR", details=str(e))
 
     await state.clear()
+

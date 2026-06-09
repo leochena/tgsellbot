@@ -13,6 +13,7 @@ from bot.database.methods import (
 from bot.database.methods.read import (
     get_item_avg_rating, has_purchased_item, validate_promo_for_item,
     get_user_review, invalidate_rating_cache, get_item_info,
+    get_cart_count,
 )
 from bot.database.methods.create import create_review
 from bot.database.methods.lazy_queries import query_item_reviews
@@ -21,8 +22,10 @@ from bot.database.methods.audit import log_audit
 from bot.keyboards import item_info, back, lazy_paginated_keyboard
 from bot.keyboards.inline import simple_buttons, rating_keyboard
 from bot.i18n import localize
-from bot.misc import EnvKeys, LazyPaginator
+from bot.misc import EnvKeys, LazyPaginator, sanitize_html
+from bot.misc.delivery_files import send_json_delivery_package
 from bot.misc.metrics import get_metrics
+from bot.misc.stock_format import format_stock_value_for_delivery
 from bot.states import ShopStates
 from bot.states.review_state import ReviewFSM
 from bot.states.promo_state import PromoFSM
@@ -50,9 +53,11 @@ async def _render_item_page(target, state: FSMContext, item_name: str, back_data
         return
 
     quantity = await select_item_values_amount_cached(item_name)
+    is_infinite_stock = await check_value(item_name)
+    in_stock = is_infinite_stock or quantity > 0
     quantity_line = (
         localize("shop.item.quantity_unlimited")
-        if await check_value(item_name)
+        if is_infinite_stock
         else localize("shop.item.quantity_left", count=quantity)
     )
 
@@ -68,6 +73,7 @@ async def _render_item_page(target, state: FSMContext, item_name: str, back_data
             purchased = await has_purchased_item(user_id, item_name)
 
     applied_promo = data.get('applied_promo')
+    cart_count = await get_cart_count(user_id) if user_id else 0
 
     # Build price line
     price = Decimal(str(item_info_data["price"]))
@@ -81,24 +87,35 @@ async def _render_item_page(target, state: FSMContext, item_name: str, back_data
         price_line = localize(
             "shop.item.price_discounted",
             original=price, discounted=discounted,
-            currency=EnvKeys.PAY_CURRENCY, code=applied_promo,
+            currency=EnvKeys.BALANCE_CURRENCY, code=applied_promo,
         )
     else:
-        price_line = localize("shop.item.price", amount=price, currency=EnvKeys.PAY_CURRENCY)
+        price_line = localize("shop.item.price", amount=price, currency=EnvKeys.BALANCE_CURRENCY)
 
     markup = item_info(
         item_name, back_data,
         avg_rating=avg_rating, review_count=review_count_val,
         has_purchased=purchased, applied_promo=applied_promo,
         reviews_enabled=reviews_enabled,
+        points_price=int(item_info_data.get("points_price") or 0),
+        points_max_per_redeem=int(item_info_data.get("points_max_per_redeem") or 1),
+        in_stock=in_stock,
+        cart_count=cart_count,
     )
 
     text_lines = [
         localize("shop.item.title", name=item_name),
         localize("shop.item.description", description=item_info_data["description"]),
         price_line,
-        quantity_line,
     ]
+    points_price = int(item_info_data.get("points_price") or 0)
+    if points_price > 0:
+        text_lines.append(localize(
+            "shop.item.points_price",
+            points=points_price,
+            max_count=int(item_info_data.get("points_max_per_redeem") or 1),
+        ))
+    text_lines.append(quantity_line)
     if reviews_enabled and avg_rating is not None:
         text_lines.append(localize("review.avg_rating", rating=avg_rating, count=review_count_val))
 
@@ -311,7 +328,7 @@ async def item_info_callback_handler(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "apply_promo")
 async def apply_promo_handler(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text(localize("promo.enter_code"), reply_markup=back("back_to_item"))
+    await call.message.edit_text(localize("promo.enter_product_code"), reply_markup=back("back_to_item"))
     await state.update_data(awaiting_promo=True)
 
 
@@ -344,9 +361,9 @@ async def back_to_item_handler(call: CallbackQuery, state: FSMContext):
 
 # --- Balance Promo Redemption (from profile) ---
 
-@router.callback_query(F.data == "redeem_promo")
+@router.callback_query(F.data.in_({"redeem_balance_promo", "redeem_promo"}))
 async def redeem_promo_handler(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text(localize("promo.enter_redeem_code"), reply_markup=back("profile"))
+    await call.message.edit_text(localize("promo.enter_balance_code"), reply_markup=back("back_to_menu"))
     await state.set_state(PromoFSM.waiting_redeem_code)
 
 
@@ -357,15 +374,15 @@ async def redeem_promo_code_handler(message: Message, state: FSMContext):
 
     if success:
         await message.answer(
-            localize("promo.balance_redeemed", code=code, amount=amount, currency=EnvKeys.PAY_CURRENCY),
-            reply_markup=back("profile"),
+            localize("promo.balance_redeemed", code=code, amount=amount, currency=EnvKeys.BALANCE_CURRENCY),
+            reply_markup=back("back_to_menu"),
         )
         await log_audit(
             "promo_redeem", user_id=message.from_user.id,
             resource_type="PromoCode", resource_id=code,
         )
     else:
-        await message.answer(localize(error_key), reply_markup=back("profile"))
+        await message.answer(localize(error_key), reply_markup=back("back_to_menu"))
 
     await state.clear()
 
@@ -617,11 +634,23 @@ async def bought_item_info_callback_handler(call: CallbackQuery):
         await call.answer(localize("purchases.item.not_found"), show_alert=True)
         return
 
+    file_sent = await send_json_delivery_package(
+        call.message.bot,
+        call.from_user.id,
+        [item],
+        caption=f"{item['item_name']} #{item['unique_id']}",
+    )
+    safe_value = (
+        "JSON 文件已重新发送，请在聊天附件中点击下载。"
+        if file_sent
+        else sanitize_html(format_stock_value_for_delivery(item["value"]))
+    )
     text = "\n".join([
         localize("purchases.item.name", name=item["item_name"]),
-        localize("purchases.item.price", amount=item["price"], currency=EnvKeys.PAY_CURRENCY),
+        localize("purchases.item.price", amount=item["price"], currency=EnvKeys.BALANCE_CURRENCY),
         localize("purchases.item.datetime", dt=item["bought_datetime"]),
         localize("purchases.item.unique_id", uid=item["unique_id"]),
-        localize("purchases.item.value", value=item["value"]),
+        localize("purchases.item.value", value=safe_value),
     ])
     await call.message.edit_text(text, parse_mode='HTML', reply_markup=back(back_data))
+

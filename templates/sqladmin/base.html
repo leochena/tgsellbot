@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="{{ admin_locale(request) }}">
+
+<head>
+  {% block head_meta %}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  {% endblock %}
+  {% block head_css %}
+  <link rel="stylesheet" href="{{ url_for('admin:statics', path='css/tabler.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('admin:statics', path='css/tabler-icons.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('admin:statics', path='css/fontawesome.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('admin:statics', path='css/select2.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('admin:statics', path='css/flatpickr.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('admin:statics', path='css/main.css') }}">
+  <style>
+    :root,
+    html {
+      font-size: {{ admin_font_size(request) }}pt !important;
+      --tblr-body-font-size: 1rem;
+      --tblr-btn-font-size: 1rem;
+    }
+
+    body,
+    .btn,
+    .form-control,
+    .form-select,
+    .dropdown-menu,
+    .dropdown-item,
+    .table,
+    .table th,
+    .table td,
+    .nav-link,
+    .form-label,
+    .input-group-text,
+    .page-link,
+    .card,
+    .alert,
+    .select2-container,
+    .select2-results__option,
+      .flatpickr-calendar {
+      font-size: 1rem !important;
+    }
+
+    .btn-sm,
+    .btn-group-sm > .btn,
+    .input-group-sm > .btn,
+    .input-group-sm > .form-control,
+    .input-group-sm > .form-select,
+    .input-group-sm > .input-group-text {
+      font-size: 1rem !important;
+    }
+
+    small,
+    .small,
+    .text-muted,
+    .page-pretitle,
+    .form-hint,
+    .invalid-feedback,
+    .valid-feedback {
+      font-size: 1rem !important;
+    }
+
+    .admin-font-size-switch .btn {
+      min-width: 3rem;
+    }
+  </style>
+  {% endblock %}
+  {% if admin.favicon_url %}
+  <link rel="icon" href="{{ admin.favicon_url }}">
+  {% endif %}
+  <title>{{ admin_t('admin_web.title') }}</title>
+  {% block head %}
+  {% endblock %}
+  {% block head_tail %}
+  {% endblock %}
+</head>
+
+<body>
+  {% block body %}
+  <main>
+    {% block main %}
+    {% endblock %}
+  </main>
+  {% endblock %}
+  {% block tail_js %}
+  <script type="text/javascript" src="{{ url_for('admin:statics', path='js/jquery.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('admin:statics', path='js/tabler.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('admin:statics', path='js/popper.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('admin:statics', path='js/bootstrap.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('admin:statics', path='js/select2.full.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('admin:statics', path='js/flatpickr.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('admin:statics', path='js/main.js') }}"></script>
+  {% endblock %}
+  {% block tail %}
+  <script>
+    window.SQLADMIN_I18N = {
+      deleteConfirm: {{ admin_t('admin_web.delete_confirm', name='__NAME__', pk='__PK__') | tojson }}
+    };
+    document.addEventListener('shown.bs.modal', function (event) {
+      if (!event.target || event.target.id !== 'modal-delete' || !event.relatedTarget) {
+        return;
+      }
+      var element = event.relatedTarget;
+      var name = element.getAttribute('data-name') || '';
+      var pk = element.getAttribute('data-pk') || '';
+      var target = document.getElementById('modal-delete-text');
+      if (target && window.SQLADMIN_I18N && window.SQLADMIN_I18N.deleteConfirm) {
+        target.textContent = window.SQLADMIN_I18N.deleteConfirm
+          .replace('__NAME__', name)
+          .replace('__PK__', pk);
+      }
+    }, true);
+  </script>
+  {% endblock %}
+
+
+</body>
+
+</html>

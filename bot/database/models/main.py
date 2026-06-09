@@ -1,9 +1,10 @@
 import datetime
+import hashlib
 from typing import Any
 
 from sqlalchemy import (
     Column, Integer, String, BigInteger, ForeignKey, Text, Boolean,
-    DateTime, Numeric, Index, UniqueConstraint, CheckConstraint, func, select
+    DateTime, Numeric, Index, UniqueConstraint, CheckConstraint, func, select, text
 )
 from bot.database.main import Database
 from sqlalchemy.orm import relationship
@@ -95,6 +96,8 @@ class User(Database.BASE):
     telegram_id = Column(BigInteger, primary_key=True)
     role_id = Column(Integer, ForeignKey('roles.id', ondelete="RESTRICT"), default=1, index=True)
     balance = Column(Numeric(12, 2), nullable=False, default=0)
+    points_balance = Column(Integer, nullable=False, default=0)
+    locale = Column(String(8), nullable=True, index=True)
     referral_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="SET NULL"), nullable=True, index=True)
     registration_date = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     is_blocked = Column(Boolean, default=False, index=True)
@@ -120,11 +123,13 @@ class User(Database.BASE):
     )
 
     def __init__(self, telegram_id: int, registration_date: datetime.datetime, balance=0, referral_id=None,
-                 role_id: int = 1, **kw: Any):
+                 role_id: int = 1, locale: str | None = None, points_balance: int = 0, **kw: Any):
         super().__init__(**kw)
         self.telegram_id = telegram_id
         self.role_id = role_id
         self.balance = balance
+        self.points_balance = points_balance
+        self.locale = locale
         self.referral_id = referral_id
         self.registration_date = registration_date
 
@@ -145,15 +150,37 @@ class Goods(Database.BASE):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), unique=True, nullable=False)
     price = Column(Numeric(12, 2), nullable=False)
+    points_price = Column(Integer, nullable=False, default=0)
+    points_max_per_redeem = Column(Integer, nullable=False, default=1)
+    lottery_enabled = Column(Boolean, nullable=False, default=False, index=True)
+    lottery_level = Column(String(64), nullable=False, default='')
+    lottery_winners_count = Column(Integer, nullable=False, default=1)
     description = Column(Text, nullable=False)
     category_id = Column(Integer, ForeignKey('categories.id', ondelete="CASCADE"), nullable=False, index=True)
     category = relationship("Categories", back_populates="items", lazy='raise')
     values = relationship("ItemValues", back_populates="item", lazy='raise')
 
-    def __init__(self, name: str, price, description: str, category_id: int, **kw: Any):
+    def __init__(
+            self,
+            name: str,
+            price,
+            description: str,
+            category_id: int,
+            points_price: int = 0,
+            points_max_per_redeem: int = 1,
+            lottery_enabled: bool = False,
+            lottery_level: str = '',
+            lottery_winners_count: int = 1,
+            **kw: Any,
+    ):
         super().__init__(**kw)
         self.name = name
         self.price = price
+        self.points_price = points_price
+        self.points_max_per_redeem = points_max_per_redeem
+        self.lottery_enabled = lottery_enabled
+        self.lottery_level = lottery_level
+        self.lottery_winners_count = lottery_winners_count
         self.description = description
         self.category_id = category_id
 
@@ -163,11 +190,12 @@ class ItemValues(Database.BASE):
     id = Column(Integer, primary_key=True)
     item_id = Column(Integer, ForeignKey('goods.id', ondelete="CASCADE"), nullable=False, index=True)
     value = Column(Text, nullable=True)
+    value_hash = Column(String(64), nullable=False)
     is_infinity = Column(Boolean, nullable=False)
     item = relationship("Goods", back_populates="values", lazy='raise')
 
     __table_args__ = (
-        UniqueConstraint('item_id', 'value', name='uq_item_value_per_item'),
+        UniqueConstraint('item_id', 'value_hash', name='uq_item_value_hash_per_item'),
         Index('ix_item_values_item_inf', 'item_id', 'is_infinity'),
     )
 
@@ -175,7 +203,12 @@ class ItemValues(Database.BASE):
         super().__init__(**kw)
         self.item_id = item_id
         self.value = value
+        self.value_hash = stock_value_hash(value)
         self.is_infinity = is_infinity
+
+
+def stock_value_hash(value: str | None) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
 
 
 class BoughtGoods(Database.BASE):
@@ -333,6 +366,91 @@ class CartItems(Database.BASE):
     added_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class GroupInviteLinks(Database.BASE):
+    __tablename__ = 'group_invite_links'
+    id = Column(Integer, primary_key=True)
+    inviter_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    chat_id = Column(String(64), nullable=False, index=True)
+    invite_link = Column(String(512), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('inviter_id', 'chat_id', name='uq_group_invite_link_inviter_chat'),
+        UniqueConstraint('invite_link', name='uq_group_invite_link_url'),
+        Index('ix_group_invite_links_chat_inviter', 'chat_id', 'inviter_id'),
+    )
+
+
+class GroupInviteRewards(Database.BASE):
+    __tablename__ = 'group_invite_rewards'
+    id = Column(Integer, primary_key=True)
+    inviter_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    invited_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    chat_id = Column(String(64), nullable=False, index=True)
+    invite_link = Column(String(512), nullable=True)
+    joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    rewarded_at = Column(DateTime(timezone=True), nullable=True)
+    points_awarded = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint('invited_id', 'chat_id', name='uq_group_invite_reward_invited_chat'),
+        CheckConstraint('inviter_id != invited_id', name='ck_group_invite_reward_no_self'),
+        Index('ix_group_invite_rewards_pending', 'chat_id', 'invited_id', 'rewarded_at'),
+        Index('ix_group_invite_rewards_inviter_joined', 'inviter_id', 'joined_at'),
+    )
+
+
+class BotSettings(Database.BASE):
+    __tablename__ = 'bot_settings'
+    key = Column(String(128), primary_key=True)
+    value = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    @staticmethod
+    async def insert_defaults():
+        defaults = {
+            "group_invite_share_template": {
+                "value": "点击加入 AI 公益分享频道：{link}\n每日签到免费领取积分，积分可抽奖、兑换商品。分享 GPT Plus、接码、邮箱等资源。",
+                "description": "邀请文案模板；{link} 会由系统替换为用户专属邀请链接。",
+            },
+            "group_invite_share_template_zh": {
+                "value": "点击加入 AI 公益分享频道：{link}\n每日签到免费领取积分，积分可抽奖、兑换商品。分享 GPT Plus、接码、邮箱等资源。",
+                "description": "中文邀请文案模板；{link} 会由系统替换为用户专属邀请链接。",
+            },
+            "group_invite_share_template_en": {
+                "value": "Join the AI public-benefit sharing group: {link}\nCheck in daily to earn free points. Points can be used for lotteries and product redemption, including GPT Plus, SMS verification, email and related resources.",
+                "description": "English invite copy template; {link} is replaced with the user's personal invite link.",
+            },
+            "group_invite_share_template_ru": {
+                "value": "Присоединяйтесь к группе AI public-benefit: {link}\nЕжедневно отмечайтесь и получайте баллы. Баллы можно использовать в розыгрышах и для обмена на товары: GPT Plus, SMS-верификация, email и другие ресурсы.",
+                "description": "Russian invite copy template; {link} is replaced with the user's personal invite link.",
+            },
+            "rules_text": {
+                "value": "",
+                "description": "Optional generic rules text shown above the built-in user trading guide.",
+            },
+            "rules_text_zh": {
+                "value": "",
+                "description": "可选中文规则文案；会显示在内置交易说明上方。",
+            },
+            "rules_text_en": {
+                "value": "",
+                "description": "Optional English rules text shown above the built-in user trading guide.",
+            },
+            "rules_text_ru": {
+                "value": "",
+                "description": "Optional Russian rules text shown above the built-in user trading guide.",
+            },
+        }
+        async with Database().session() as s:
+            for key, data in defaults.items():
+                setting = (await s.execute(select(BotSettings).where(BotSettings.key == key))).scalars().first()
+                if setting is None:
+                    s.add(BotSettings(key=key, value=data["value"], description=data["description"]))
+                elif not setting.description:
+                    setting.description = data["description"]
+
 
 class Reviews(Database.BASE):
     __tablename__ = 'reviews'
@@ -348,7 +466,80 @@ class Reviews(Database.BASE):
     )
 
 
+class CheckIns(Database.BASE):
+    __tablename__ = 'checkins'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    checkin_date = Column(DateTime(timezone=True), nullable=False)
+    reward_amount = Column(Numeric(12, 2), nullable=False, default=0)
+    points_awarded = Column(Integer, nullable=False, default=0)
+    tickets_awarded = Column(Integer, nullable=False, default=0)
+    streak = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'checkin_date', name='uq_checkins_user_date'),
+        Index('ix_checkins_date', 'checkin_date'),
+    )
+
+
+class LotteryEvents(Database.BASE):
+    __tablename__ = 'lottery_events'
+    id = Column(Integer, primary_key=True)
+    title = Column(String(128), nullable=False)
+    prize = Column(Text, nullable=False)
+    status = Column(String(16), nullable=False, default='active', index=True)
+    winner_user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True, index=True)
+    created_by = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True, index=True)
+    draw_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    min_entries = Column(Integer, nullable=False, default=0)
+    min_users = Column(Integer, nullable=False, default=0)
+    auto_draw_enabled = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index('ix_lottery_events_status_created', 'status', 'created_at'),
+    )
+
+
+class LotteryEntries(Database.BASE):
+    __tablename__ = 'lottery_entries'
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey('lottery_events.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    source = Column(String(32), nullable=False, default='checkin')
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index('ix_lottery_entries_event_user', 'event_id', 'user_id'),
+    )
+
+
+class LotteryWinners(Database.BASE):
+    __tablename__ = 'lottery_winners'
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey('lottery_events.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    goods_id = Column(Integer, ForeignKey('goods.id', ondelete='SET NULL'), nullable=True, index=True)
+    goods_name = Column(String(100), nullable=False)
+    prize_level = Column(String(64), nullable=False)
+    ticket_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('event_id', 'user_id', 'goods_id', name='uq_lottery_winner_event_user_goods'),
+        Index('ix_lottery_winners_event_level', 'event_id', 'prize_level'),
+    )
+
+
 async def register_models():
+    from bot.misc import EnvKeys
+
     async with Database().engine.begin() as conn:
+        if EnvKeys.POSTGRES_SCHEMA != "public":
+            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{EnvKeys.POSTGRES_SCHEMA}"'))
+            await conn.execute(text(f'SET search_path TO "{EnvKeys.POSTGRES_SCHEMA}"'))
         await conn.run_sync(Database.BASE.metadata.create_all)
     await Role.insert_roles()
+    await BotSettings.insert_defaults()

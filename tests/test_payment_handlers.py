@@ -31,6 +31,7 @@ class TestReplenishBalance:
         with patch('bot.handlers.user.balance_and_payment._any_payment_method_enabled', return_value=True), \
              patch('bot.handlers.user.balance_and_payment.EnvKeys') as env:
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await replenish_balance_callback_handler(call, fsm_context)
 
         state = await fsm_context.get_state()
@@ -72,6 +73,7 @@ class TestCheckingPayment:
              patch('bot.handlers.user.balance_and_payment.EnvKeys') as env:
             env.REFERRAL_PERCENT = 0
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await checking_payment(call, fsm_context)
 
         # Balance should be updated in DB
@@ -140,6 +142,7 @@ class TestCheckingPayment:
              patch('bot.handlers.user.balance_and_payment.EnvKeys') as env:
             env.REFERRAL_PERCENT = 0
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await checking_payment(call1, fsm_context)
 
         # Second attempt with same invoice
@@ -150,6 +153,7 @@ class TestCheckingPayment:
              patch('bot.handlers.user.balance_and_payment.EnvKeys') as env:
             env.REFERRAL_PERCENT = 0
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await checking_payment(call2, fsm_context)
 
         # Balance should only be credited once
@@ -171,10 +175,38 @@ class TestBuyItemHandler:
         with patch('bot.main.security_middleware', None), \
              patch('bot.handlers.user.balance_and_payment.EnvKeys') as env:
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await buy_item_callback_handler(call, fsm_context)
 
         user = await check_user(400020)
         assert user['balance'] == Decimal("400")
+        call.message.bot.send_document.assert_not_called()
+
+    async def test_buy_json_item_sends_document(self, make_callback_query, fsm_context, user_factory, item_factory):
+        from bot.handlers.user.balance_and_payment import buy_item_callback_handler
+
+        await user_factory(telegram_id=400024, balance=500)
+        await item_factory(
+            name="JsonWidget",
+            price=100,
+            values=[('{"account":"a@example.com","password":"p1"}', False)],
+        )
+
+        call = make_callback_query(data="buy", user_id=400024)
+        await fsm_context.update_data(csrf_item="JsonWidget")
+
+        with patch('bot.main.security_middleware', None), \
+             patch('bot.handlers.user.balance_and_payment.EnvKeys') as env:
+            env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
+            await buy_item_callback_handler(call, fsm_context)
+
+        user = await check_user(400024)
+        assert user['balance'] == Decimal("400")
+        call.message.bot.send_document.assert_awaited_once()
+        kwargs = call.message.bot.send_document.await_args.kwargs
+        assert kwargs["chat_id"] == 400024
+        assert kwargs["document"].filename.endswith(".json")
 
     async def test_buy_item_insufficient_funds(self, make_callback_query, fsm_context, user_factory, item_factory):
         from bot.handlers.user.balance_and_payment import buy_item_callback_handler
@@ -188,6 +220,7 @@ class TestBuyItemHandler:
         with patch('bot.main.security_middleware', None), \
              patch('bot.handlers.user.balance_and_payment.EnvKeys') as env:
             env.PAY_CURRENCY = "RUB"
+            env.BALANCE_CURRENCY = "UStars"
             await buy_item_callback_handler(call, fsm_context)
 
         # Balance should be unchanged

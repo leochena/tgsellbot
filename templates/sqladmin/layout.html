@@ -1,0 +1,75 @@
+{% extends "sqladmin/base.html" %}
+{% from 'sqladmin/_macros.html' import display_menu %}
+{% block body %}
+<div class="wrapper">
+  <aside class="navbar navbar-expand-lg navbar-vertical navbar-expand-md navbar-dark">
+    <div class="container-fluid">
+      <h1 class="navbar-brand navbar-brand-autodark">
+        <a href="{{ url_for('admin:index') }}">
+          {% if admin.logo_url %}
+          <img src="{{ admin.logo_url }}" width="{{ admin.logo_width }}" height="{{ admin.logo_height }}" alt="{{ admin_t('admin_web.title') }}" class="navbar-brand-logo" />
+          {% else %}
+          <h3>{{ admin_t('admin_web.title') }}</h3>
+          {% endif %}
+        </a>
+      </h1>
+      <nav class="navbar navbar-expand-sm shadow-none" id="navbar-menu">
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="{{ admin_t('admin_web.toggle_navigation') }}">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+          {{ display_menu(admin._menu, request) }}
+        </div>
+      </nav>
+      {% if admin.authentication_backend %}
+      <div class="d-flex align-items-center gap-2 m-2 flex-wrap">
+        <div class="btn-group btn-group-sm" role="group" aria-label="{{ admin_t('admin_web.language') }}">
+          <a class="btn {{ 'btn-primary' if admin_locale(request) == 'zh' else 'btn-outline-light' }}" href="{{ admin_language_url(request, 'zh') }}">{{ admin_t('admin_web.language.zh') }}</a>
+          <a class="btn {{ 'btn-primary' if admin_locale(request) == 'en' else 'btn-outline-light' }}" href="{{ admin_language_url(request, 'en') }}">{{ admin_t('admin_web.language.en') }}</a>
+        </div>
+        <div class="d-flex align-items-center gap-1">
+          <span class="text-light small">{{ admin_t('admin_web.font_size') }}</span>
+          <div class="btn-group btn-group-sm admin-font-size-switch" role="group" aria-label="{{ admin_t('admin_web.font_size') }}">
+            {% for size in [12, 14, 16, 18] %}
+            <a class="btn {{ 'btn-primary' if admin_font_size(request) == size else 'btn-outline-light' }}" href="{{ admin_font_size_url(request, size) }}">{{ admin_t('admin_web.font_size.option', size=size) }}</a>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <a href="{{ request.url_for('admin:logout') }}" class="btn btn-secondary btn-icon m-2 px-2">
+        <span class="me-2">{{ admin_t('admin_web.logout') }}</span>
+        <i class="fa fa-sign-out"></i>
+      </a>
+      {% endif %}
+    </div>
+  </aside>
+  <div class="page-wrapper">
+    <div class="container-fluid">
+      <div class="page-header d-print-none">
+        {% block content_header %}
+        <div class="row align-items-center">
+          <div class="col">
+            <h2 class="page-title">{{ title }}</h2>
+            <div class="page-pretitle">{{ subtitle }}</div>
+          </div>
+        </div>
+        {% endblock %}
+      </div>
+    </div>
+    <div class="page-body flex-grow-1">
+      <div class="container-fluid">
+        <div class="row row-deck row-cards">
+          {% block content %} {% endblock %}
+          {% block flash %}
+          {% include 'sqladmin/flash.html' %}
+          {% endblock %}
+          {% block secret_modal %}
+          {% include 'sqladmin/secret_modal.html' %}
+          {% endblock %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

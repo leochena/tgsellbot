@@ -7,7 +7,15 @@ from aiogram.types import CallbackQuery, Message, PreCheckoutQuery, SuccessfulPa
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
-from bot.database.methods import get_user_referral, buy_item_transaction, process_payment_with_referral, create_pending_payment
+from bot.database.methods import (
+    get_user_referral,
+    buy_item_transaction,
+    redeem_item_with_points_transaction,
+    process_payment_with_referral,
+    create_pending_payment,
+    check_value,
+    select_item_values_amount_cached,
+)
 from bot.keyboards import back, payment_menu, close, get_payment_choice
 from bot.logger_mesh import logger
 from bot.database.methods.audit import log_audit
@@ -17,6 +25,8 @@ from bot.handlers.other import _any_payment_method_enabled, is_safe_item_name
 from bot.misc.metrics import get_metrics
 from bot.misc.services import CryptoPayAPI, CryptoPayAPIError, send_stars_invoice, send_fiat_invoice
 from bot.misc.services.payment import _minor_units_for
+from bot.misc.delivery_files import send_json_delivery_package
+from bot.misc.stock_format import format_stock_value_for_delivery
 from bot.filters import ValidAmountFilter
 from bot.i18n import localize
 from bot.states import BalanceStates
@@ -36,7 +46,7 @@ async def _notify_referrer_bonus(bot, user_id: int, amount: int, payer_name: str
                 referral_id,
                 localize('payments.referral.bonus',
                          amount=bonus, name=payer_name,
-                         id=payer_id, currency=EnvKeys.PAY_CURRENCY),
+                         id=payer_id, currency=EnvKeys.BALANCE_CURRENCY),
                 reply_markup=close()
             )
     except (TelegramBadRequest, TelegramForbiddenError) as e:
@@ -51,7 +61,7 @@ async def replenish_balance_callback_handler(call: CallbackQuery, state: FSMCont
         return
 
     await call.message.edit_text(
-        localize("payments.replenish_prompt", currency=EnvKeys.PAY_CURRENCY),
+        localize("payments.replenish_prompt", currency=EnvKeys.BALANCE_CURRENCY),
         reply_markup=back('profile')
     )
     await state.set_state(BalanceStates.waiting_amount)
@@ -81,7 +91,7 @@ async def replenish_balance_amount(message: Message, state: FSMContext):
             localize("payments.replenish_invalid",
                      min_amount=EnvKeys.MIN_AMOUNT,
                      max_amount=EnvKeys.MAX_AMOUNT,
-                     currency=EnvKeys.PAY_CURRENCY),
+                     currency=EnvKeys.BALANCE_CURRENCY),
             reply_markup=back('replenish_balance')
         )
 
@@ -95,7 +105,7 @@ async def invalid_amount(message: Message, state: FSMContext):
         localize("payments.replenish_invalid",
                  min_amount=EnvKeys.MIN_AMOUNT,
                  max_amount=EnvKeys.MAX_AMOUNT,
-                 currency=EnvKeys.PAY_CURRENCY),
+                 currency=EnvKeys.BALANCE_CURRENCY),
         reply_markup=back('replenish_balance')
     )
 
@@ -175,7 +185,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
                          amount=int(amount_dec),
                          minutes=int(ttl_seconds / 60),
                          button=localize("btn.check_payment"),
-                         currency=payment_request.currency),
+                         currency=EnvKeys.BALANCE_CURRENCY),
                 reply_markup=payment_menu(pay_url)
             )
 
@@ -281,7 +291,7 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
             await call.message.edit_text(
                 localize("payments.topped_simple",
                          amount=balance_amount,
-                         currency=EnvKeys.PAY_CURRENCY),
+                         currency=EnvKeys.BALANCE_CURRENCY),
                 reply_markup=back('profile')
             )
             await state.clear()
@@ -293,7 +303,7 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
                     "balance_replenish",
                     user_id=user_id,
                     resource_type="Payment",
-                    details=f"name={user_info.first_name}, amount={balance_amount} {EnvKeys.PAY_CURRENCY}, provider=cryptopay",
+                    details=f"name={user_info.first_name}, amount={balance_amount} {EnvKeys.BALANCE_CURRENCY}, provider=cryptopay",
                 )
             except (TelegramBadRequest, TelegramForbiddenError) as e:
                 await log_audit("balance_replenish", level="ERROR", user_id=user_id, resource_type="Payment", details=f"log_failed: {e}")
@@ -392,7 +402,7 @@ async def successful_payment_handler(message: Message):
     suffix = localize("payments.success_suffix.stars") if sp.currency == "XTR" else localize(
         "payments.success_suffix.tg")
     await message.answer(
-        localize('payments.topped_with_suffix', amount=amount, suffix=suffix, currency=EnvKeys.PAY_CURRENCY),
+        localize('payments.topped_with_suffix', amount=amount, suffix=suffix, currency=EnvKeys.BALANCE_CURRENCY),
         reply_markup=back('profile')
     )
 
@@ -403,7 +413,7 @@ async def successful_payment_handler(message: Message):
             "balance_replenish",
             user_id=user_id,
             resource_type="Payment",
-            details=f"name={user_info.first_name}, amount={amount} {EnvKeys.PAY_CURRENCY}, provider={suffix}",
+            details=f"name={user_info.first_name}, amount={amount} {EnvKeys.BALANCE_CURRENCY}, provider={suffix}",
         )
     except (TelegramBadRequest, TelegramForbiddenError) as e:
         await log_audit("balance_replenish", level="ERROR", user_id=user_id, resource_type="Payment", details=f"log_failed: {e}")
@@ -412,6 +422,114 @@ async def successful_payment_handler(message: Message):
 @router.callback_query(F.data == "buy")
 async def buy_item_callback_handler(call: CallbackQuery, state: FSMContext):
     """Processing the purchase of goods with full transactional security."""
+    data = await state.get_data()
+    item_name = data.get('csrf_item')
+    if not item_name:
+        await call.answer(localize("middleware.security.invalid_csrf"), show_alert=True)
+        return
+
+    stock_count = await select_item_values_amount_cached(item_name)
+    is_infinite_stock = await check_value(item_name)
+    if not is_infinite_stock and stock_count <= 0:
+        await call.answer(localize("shop.out_of_stock"), show_alert=True)
+        return
+    if is_infinite_stock or stock_count > 1:
+        from bot.keyboards.inline import simple_buttons
+        max_count = 10 if is_infinite_stock else min(stock_count, 10)
+        buttons = [(str(i), f"buy_qty:{i}") for i in range(1, max_count + 1)]
+        buttons.append((localize("btn.back"), "back_to_item"))
+        await call.message.edit_text(
+            localize("shop.purchase.choose_quantity", max=max_count),
+            reply_markup=simple_buttons(buttons, per_row=5),
+        )
+        return
+
+    await _complete_purchase_callback(
+        call,
+        state,
+        transaction=lambda user_id, item_name, data: buy_item_transaction(
+            user_id,
+            item_name,
+            promo_code=data.get('applied_promo'),
+            quantity=1,
+        ),
+        receipt_key="shop.purchase.receipt",
+        audit_action="purchase",
+        audit_detail=lambda purchase_data: f"total={purchase_data.get('total_price', purchase_data['price'])} {EnvKeys.BALANCE_CURRENCY}",
+    )
+
+
+@router.callback_query(F.data.startswith("buy_qty:"))
+async def buy_item_quantity_callback_handler(call: CallbackQuery, state: FSMContext):
+    quantity = int(call.data.split(":", 1)[1])
+    await _complete_purchase_callback(
+        call,
+        state,
+        transaction=lambda user_id, item_name, data: buy_item_transaction(
+            user_id,
+            item_name,
+            promo_code=data.get('applied_promo'),
+            quantity=quantity,
+        ),
+        receipt_key="shop.purchase.receipt",
+        audit_action="purchase",
+        audit_detail=lambda purchase_data: f"total={purchase_data.get('total_price', purchase_data['price'])} {EnvKeys.BALANCE_CURRENCY}",
+    )
+
+
+@router.callback_query(F.data == "redeem_points")
+async def redeem_points_callback_handler(call: CallbackQuery, state: FSMContext):
+    """Redeem goods with user points."""
+    await _complete_purchase_callback(
+        call,
+        state,
+        transaction=lambda user_id, item_name, data: redeem_item_with_points_transaction(user_id, item_name),
+        receipt_key="shop.points.receipt",
+        audit_action="points_redeem",
+        audit_detail=lambda purchase_data: f"points={purchase_data['points_price']}",
+    )
+
+
+@router.callback_query(F.data == "redeem_points_choose")
+async def redeem_points_choose_callback_handler(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    item_name = data.get('csrf_item')
+    if not item_name:
+        await call.answer(localize("middleware.security.invalid_csrf"), show_alert=True)
+        return
+
+    from bot.database.methods import get_item_info
+    from bot.keyboards.inline import simple_buttons
+
+    item = await get_item_info(item_name)
+    max_count = max(int(item.get("points_max_per_redeem") or 1), 1) if item else 1
+    max_count = min(max_count, 10)
+    buttons = [(str(i), f"redeem_points_qty:{i}") for i in range(1, max_count + 1)]
+    buttons.append((localize("btn.back"), "back_to_item"))
+    await call.message.edit_text(
+        localize("shop.points.choose_quantity", max=max_count),
+        reply_markup=simple_buttons(buttons, per_row=5),
+    )
+
+
+@router.callback_query(F.data.startswith("redeem_points_qty:"))
+async def redeem_points_quantity_callback_handler(call: CallbackQuery, state: FSMContext):
+    quantity = int(call.data.split(":", 1)[1])
+    await _complete_purchase_callback(
+        call,
+        state,
+        transaction=lambda user_id, item_name, data: redeem_item_with_points_transaction(
+            user_id,
+            item_name,
+            quantity=quantity,
+        ),
+        receipt_key="shop.points.receipt",
+        audit_action="points_redeem",
+        audit_detail=lambda purchase_data: f"points={purchase_data['total_points']}",
+    )
+
+
+async def _complete_purchase_callback(call: CallbackQuery, state: FSMContext, *, transaction, receipt_key: str, audit_action: str, audit_detail):
     try:
         # Get item name from state (stored when viewing item info)
         data = await state.get_data()
@@ -448,15 +566,8 @@ async def buy_item_callback_handler(call: CallbackQuery, state: FSMContext):
         # Show the processing indicator
         await call.answer(localize("shop.purchase.processing"))
 
-        # Get promo code from state if applied
-        promo_code = data.get('applied_promo')
-
         # Execute a transactional purchase
-        success, message, purchase_data = await buy_item_transaction(
-            user_id,
-            purchase_request.item_name,
-            promo_code=promo_code,
-        )
+        success, message, purchase_data = await transaction(user_id, purchase_request.item_name, data)
 
         if not success:
             # Error handling
@@ -464,7 +575,10 @@ async def buy_item_callback_handler(call: CallbackQuery, state: FSMContext):
                 "user_not_found": "shop.purchase.fail.user_not_found",
                 "item_not_found": "shop.item.not_found",
                 "insufficient_funds": "shop.insufficient_funds",
-                "out_of_stock": "shop.out_of_stock"
+                "insufficient_points": "shop.points.insufficient",
+                "points_not_available": "shop.points.not_available",
+                "points_quantity_exceeded": "shop.points.quantity_exceeded",
+                "out_of_stock": "shop.out_of_stock",
             }
 
             error_text = localize(
@@ -490,26 +604,43 @@ async def buy_item_callback_handler(call: CallbackQuery, state: FSMContext):
             })
             metrics.track_conversion("purchase_funnel", "purchase", call.from_user.id)
 
-        safe_value = sanitize_html(purchase_data['value'])
+        delivery_sent = await send_json_delivery_package(
+            call.message.bot,
+            call.from_user.id,
+            purchase_data.get("purchases") or [purchase_data],
+            caption=f"{purchase_data['item_name']} #{purchase_data['unique_id']}",
+        )
+        safe_value = (
+            "JSON 文件已发送，请在聊天附件中点击下载。"
+            if delivery_sent
+            else sanitize_html(format_stock_value_for_delivery(purchase_data['value']))
+        )
         username = call.from_user.username or call.from_user.first_name
 
         from bot.keyboards.inline import simple_buttons
         buttons = [
-            (f"📦 {purchase_data['item_name']}", f"bought-item:{purchase_data['bought_id']}:back_to_item"),
+            *[
+                (f"📦 {item['item_name']} #{idx}", f"bought-item:{item['bought_id']}:back_to_item")
+                for idx, item in enumerate(purchase_data.get("purchases") or [purchase_data], start=1)
+            ],
             (localize("btn.back"), "back_to_item"),
         ]
 
         await call.message.edit_text(
             localize(
-                'shop.purchase.receipt',
+                receipt_key,
                 item_name=purchase_data['item_name'],
                 price=purchase_data['price'],
+                total=purchase_data.get('total_price', purchase_data['price']),
+                points=purchase_data.get('total_points', purchase_data.get('points_price', 0)),
+                quantity=purchase_data.get('quantity', 1),
+                points_balance=purchase_data.get('new_points_balance', 0),
                 unique_id=purchase_data['unique_id'],
                 datetime=purchase_data['bought_datetime'],
                 username=username,
                 user_id=call.from_user.id,
                 value=safe_value,
-                currency=EnvKeys.PAY_CURRENCY,
+                currency=EnvKeys.BALANCE_CURRENCY,
             ),
             parse_mode='HTML',
             reply_markup=simple_buttons(buttons),
@@ -519,14 +650,14 @@ async def buy_item_callback_handler(call: CallbackQuery, state: FSMContext):
         try:
             user_info = await call.bot.get_chat(user_id)
             await log_audit(
-                "purchase",
+                audit_action,
                 user_id=user_id,
                 resource_type="Item",
                 resource_id=purchase_request.item_name[:100],
-                details=f"name={user_info.first_name[:50]}, price={purchase_data['price']} {EnvKeys.PAY_CURRENCY}, unique_id={purchase_data['unique_id']}",
+                details=f"name={user_info.first_name[:50]}, {audit_detail(purchase_data)}, unique_id={purchase_data['unique_id']}",
             )
         except Exception as e:
-            await log_audit("purchase", level="ERROR", user_id=user_id, resource_type="Item", details=f"log_failed: {e}")
+            await log_audit(audit_action, level="ERROR", user_id=user_id, resource_type="Item", details=f"log_failed: {e}")
 
     except Exception as e:
         logger.error(f"Critical error in purchase handler: {e}")
@@ -534,3 +665,4 @@ async def buy_item_callback_handler(call: CallbackQuery, state: FSMContext):
             localize("errors.something_wrong"),
             show_alert=True
         )
+

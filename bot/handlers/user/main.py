@@ -8,19 +8,58 @@ import datetime
 
 from bot.database.methods import (
     select_max_role_id, create_user, check_role, check_user,
-    select_user_operations, select_user_items, check_user_cached
+    select_user_operations, select_user_items, check_user_cached, set_user_locale
 )
 from bot.database.methods.read import get_cart_count
+from bot.database.methods.group_invites import get_bot_setting
 from bot.database.methods.lazy_queries import query_user_operations_history
 from bot.handlers.other import check_sub_channel, _parse_channel_username
 from bot.keyboards import main_menu, back, profile_keyboard, check_sub
-from bot.keyboards.inline import simple_buttons, lazy_paginated_keyboard
+from bot.keyboards.inline import simple_buttons, lazy_paginated_keyboard, language_keyboard
 from bot.misc import EnvKeys
 from bot.misc.metrics import get_metrics
-from bot.i18n import localize
+from bot.i18n import get_locale, is_supported_locale, localize, set_current_locale
 from bot.logger_mesh import logger
 
 router = Router()
+
+
+async def _get_custom_rules_text() -> str:
+    locale = get_locale()
+    custom_rules = (await get_bot_setting(f"rules_text_{locale}", "")).strip()
+    if not custom_rules:
+        custom_rules = (await get_bot_setting("rules_text", "")).strip()
+    if not custom_rules:
+        custom_rules = (EnvKeys.RULES or "").strip()
+    return custom_rules
+
+
+async def _build_rules_text() -> str:
+    custom_rules = await _get_custom_rules_text()
+    balance_currency = getattr(EnvKeys, "BALANCE_CURRENCY", EnvKeys.PAY_CURRENCY)
+    stars_per_value = getattr(EnvKeys, "STARS_PER_VALUE", 0)
+    stars_rate_text = localize("rules.stars_rate_unconfigured")
+    try:
+        stars_rate = float(stars_per_value)
+        if stars_rate > 0:
+            stars_rate_text = localize(
+                "rules.stars_rate_configured",
+                balance_currency=balance_currency,
+                stars_per_value=stars_rate,
+            )
+    except (TypeError, ValueError):
+        pass
+    rules_notice = localize(
+        "rules.balance_notice",
+        balance_currency=balance_currency,
+        pay_currency=EnvKeys.PAY_CURRENCY,
+        stars_rate=stars_rate_text,
+    )
+    return f"{custom_rules}\n\n{rules_notice}" if custom_rules else rules_notice
+
+
+def _invite_group_config() -> str:
+    return EnvKeys.ANNOUNCEMENT_CHAT_ID or EnvKeys.CHANNEL_ID or EnvKeys.CHANNEL_URL
 
 
 @router.message(F.text.startswith('/start'))
@@ -73,10 +112,31 @@ async def start(message: Message, state: FSMContext):
         # Ignore channel errors (private channel, wrong link, etc.)
         logger.warning(f"Channel subscription check failed for user {user_id}: {e}")
 
-    markup = main_menu(role=role_data, channel=channel_username, helper=EnvKeys.HELPER_ID)
+    cart_count = await get_cart_count(user_id)
+    markup = main_menu(
+        role=role_data,
+        channel=_invite_group_config() or channel_username,
+        helper=EnvKeys.HELPER_ID,
+        cart_count=cart_count,
+    )
     await message.answer(localize("menu.title"), reply_markup=markup)
     await message.delete()
     await state.clear()
+
+
+@router.message(F.text.startswith('/chatid'))
+async def chatid(message: Message):
+    """Return the current Telegram chat id to the bot owner."""
+    if message.from_user.id != EnvKeys.OWNER_ID:
+        return
+
+    await message.answer(
+        localize(
+            "chatid.response",
+            chat_id=message.chat.id,
+            chat_type=message.chat.type,
+        )
+    )
 
 
 @router.callback_query(F.data == "back_to_menu")
@@ -99,7 +159,13 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
 
     channel_username = _parse_channel_username()
 
-    markup = main_menu(role=role_id, channel=channel_username, helper=EnvKeys.HELPER_ID)
+    cart_count = await get_cart_count(user_id)
+    markup = main_menu(
+        role=role_id,
+        channel=_invite_group_config() or channel_username,
+        helper=EnvKeys.HELPER_ID,
+        cart_count=cart_count,
+    )
     await call.message.edit_text(localize("menu.title"), reply_markup=markup)
     await state.clear()
 
@@ -107,13 +173,9 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "rules")
 async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Show rules text if provided in ENV.
+    Show rules text and the configured balance/payment notice.
     """
-    rules_data = EnvKeys.RULES
-    if rules_data:
-        await call.message.edit_text(rules_data, reply_markup=back("back_to_menu"))
-    else:
-        await call.answer(localize("rules.not_set"))
+    await call.message.edit_text(await _build_rules_text(), reply_markup=back("back_to_menu"))
     await state.clear()
 
 
@@ -127,6 +189,7 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     user_info = await check_user_cached(user_id)
 
     balance = user_info.get('balance')
+    points_balance = user_info.get('points_balance', 0)
     operations = await select_user_operations(user_id)
     overall_balance = sum(operations) if operations else 0
     items = await select_user_items(user_id)
@@ -137,8 +200,9 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     text = (
         f"{localize('profile.caption', name=tg_user.first_name, id=user_id)}\n"
         f"{localize('profile.id', id=user_id)}\n"
-        f"{localize('profile.balance', amount=balance, currency=EnvKeys.PAY_CURRENCY)}\n"
-        f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY)}\n"
+        f"{localize('profile.balance', amount=balance, currency=EnvKeys.BALANCE_CURRENCY)}\n"
+        f"{localize('profile.points', amount=points_balance)}\n"
+        f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.BALANCE_CURRENCY)}\n"
         f"{localize('profile.purchased_count', count=items)}"
     )
     try:
@@ -146,6 +210,46 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e):
             raise
+    await state.clear()
+
+
+@router.callback_query(F.data == "language_settings")
+async def language_settings_callback_handler(call: CallbackQuery, state: FSMContext):
+    """
+    Show per-user language choices.
+    """
+    await call.message.edit_text(
+        localize("language.select"),
+        reply_markup=language_keyboard(get_locale(), back_cb="back_to_menu")
+    )
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("set_locale:"))
+async def set_locale_callback_handler(call: CallbackQuery, state: FSMContext):
+    """
+    Persist per-user language and refresh current i18n context immediately.
+    """
+    locale = call.data.split(":", 1)[1]
+    if not is_supported_locale(locale):
+        await call.answer(localize("language.unsupported"), show_alert=True)
+        return
+
+    success = await set_user_locale(call.from_user.id, locale)
+    if not success:
+        await call.answer(localize("errors.something_wrong"), show_alert=True)
+        return
+
+    locale_token = set_current_locale(locale)
+    try:
+        await call.answer(localize("language.updated"))
+        await call.message.edit_text(
+            localize("language.select"),
+            reply_markup=language_keyboard(get_locale(), back_cb="back_to_menu")
+        )
+    finally:
+        from bot.i18n import reset_current_locale
+        reset_current_locale(locale_token)
     await state.clear()
 
 
@@ -164,7 +268,8 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
         if await check_sub_channel(chat_member):
             user = await check_user_cached(user_id)
             role_id = user.get('role_id')
-            markup = main_menu(role_id, channel_username, helper)
+            cart_count = await get_cart_count(user_id)
+            markup = main_menu(role_id, _invite_group_config() or channel_username, helper, cart_count=cart_count)
             await call.message.edit_text(localize("menu.title"), reply_markup=markup)
             await state.clear()
             return
@@ -209,11 +314,11 @@ async def _show_operations_page(call: CallbackQuery, state: FSMContext, user_id:
         date_str = str(date)[:19] if date else ""
 
         if op_type == 'topup':
-            lines.append(localize("history.topup", amount=amount, currency=EnvKeys.PAY_CURRENCY))
+            lines.append(localize("history.topup", amount=amount, currency=EnvKeys.BALANCE_CURRENCY))
         elif op_type == 'purchase':
-            lines.append(localize("history.purchase", amount=amount, currency=EnvKeys.PAY_CURRENCY))
+            lines.append(localize("history.purchase", amount=amount, currency=EnvKeys.BALANCE_CURRENCY))
         elif op_type == 'referral':
-            lines.append(localize("history.referral", amount=amount, currency=EnvKeys.PAY_CURRENCY))
+            lines.append(localize("history.referral", amount=amount, currency=EnvKeys.BALANCE_CURRENCY))
         lines.append(localize("history.date", date=date_str))
         lines.append("")
 
@@ -232,5 +337,6 @@ async def _show_operations_page(call: CallbackQuery, state: FSMContext, user_id:
     kb.row(InlineKeyboardButton(text=localize("btn.back"), callback_data="profile"))
 
     await call.message.edit_text("\n".join(lines), reply_markup=kb.as_markup())
+
 
 

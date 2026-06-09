@@ -2,9 +2,10 @@ import logging
 import time
 from typing import Any
 
-from sqladmin import Admin, ModelView
+from sqladmin import Admin, ModelView, BaseView, expose
 from sqladmin.authentication import AuthenticationBackend
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -15,6 +16,17 @@ from markupsafe import Markup
 
 from bot.misc import EnvKeys
 from bot.database.methods.audit import log_audit
+from bot.web.admin_i18n import (
+    AdminLocaleMiddleware,
+    admin_bool,
+    admin_set_font_size_url,
+    admin_set_language_url,
+    admin_t,
+    get_admin_font_size,
+    get_admin_locale,
+    set_admin_font_size,
+    set_admin_language,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +67,10 @@ class LoginRateLimiter:
 _login_limiter = LoginRateLimiter()
 from bot.database.main import Database
 from bot.database.models.main import (
-    User, Role, Categories, Goods, ItemValues,
-    BoughtGoods, Operations, Payments, ReferralEarnings,
-    AuditLog, PromoCodes, CartItems, Reviews,
+    User, Role, BoughtGoods, Operations, Payments, ReferralEarnings,
+    AuditLog, CartItems, Reviews,
+    CheckIns, LotteryEvents, LotteryEntries, LotteryWinners,
+    BotSettings,
 )
 from bot.misc.metrics import get_metrics
 from bot.misc.caching import get_cache_manager
@@ -120,7 +133,7 @@ class AuditModelView(ModelView):
         action = f"sqladmin_{'create' if is_created else 'update'}"
         await log_audit(
             action,
-            resource_type=self.name,
+            resource_type=type(self).name,
             resource_id=str(getattr(model, 'id', getattr(model, 'name', None))),
             details=_safe_model_repr(model),
             ip_address=request.client.host,
@@ -129,22 +142,173 @@ class AuditModelView(ModelView):
     async def after_model_delete(self, model: Any, request: Request) -> None:
         await log_audit(
             "sqladmin_delete",
-            resource_type=self.name,
+            resource_type=type(self).name,
             resource_id=str(getattr(model, 'id', getattr(model, 'name', None))),
             details=_safe_model_repr(model),
             ip_address=request.client.host,
         )
 
 
+class LocalizedModelView(ModelView):
+    name_key = ""
+    name_plural_key = ""
+    column_label_keys: dict[Any, str] = {}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._base_column_labels = dict(self._column_labels)
+
+    def __getattribute__(self, name: str):
+        if name == "name":
+            key = object.__getattribute__(self, "name_key")
+            if key:
+                return admin_t(key)
+        if name == "name_plural":
+            key = object.__getattribute__(self, "name_plural_key")
+            if key:
+                return admin_t(key)
+        return super().__getattribute__(name)
+
+    @property
+    def _localized_column_labels(self) -> dict[str, str]:
+        labels = dict(getattr(self, "_base_column_labels", {}))
+        for column, key in self.column_label_keys.items():
+            labels[self._get_prop_name(column)] = admin_t(key)
+        return labels
+
+    def column_label(self, name: str) -> str:
+        return self._localized_column_labels.get(name, name)
+
+    def search_placeholder(self) -> str:
+        labels = self._localized_column_labels
+        return ", ".join(labels.get(field, field) for field in self._search_fields)
+
+    async def scaffold_form(self, rules=None):
+        old_labels = self._column_labels
+        old_form_args = self.form_args
+        self._column_labels = self._localized_column_labels
+        self.form_args = _localized_form_args(old_form_args)
+        try:
+            return await super().scaffold_form(rules)
+        finally:
+            self._column_labels = old_labels
+            self.form_args = old_form_args
+
+
+class LocalizedAuditModelView(LocalizedModelView, AuditModelView):
+    pass
+
+
+def _localized_form_args(form_args: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for name, args in form_args.items():
+        next_args = dict(args)
+        desc_key = next_args.pop("description_key", None)
+        if desc_key:
+            next_args["description"] = admin_t(desc_key)
+        result[name] = next_args
+    return result
+
+
+def _format_bool_html(model, name):
+    return admin_bool(getattr(model, name, None))
+
+
+COMMON_LABEL_KEYS = {
+    "id": "admin_web.field.id",
+    "telegram_id": "admin_web.field.telegram_id",
+    "balance": "admin_web.field.balance",
+    "points_balance": "admin_web.field.points_balance",
+    "locale": "admin_web.field.locale",
+    "role_id": "admin_web.field.role_id",
+    "referral_id": "admin_web.field.referral_id",
+    "registration_date": "admin_web.field.registration_date",
+    "is_blocked": "admin_web.field.is_blocked",
+    "name": "admin_web.field.name",
+    "default": "admin_web.field.default",
+    "permissions": "admin_web.field.permissions",
+    "price": "admin_web.field.price",
+    "points_price": "admin_web.field.points_price",
+    "points_max_per_redeem": "admin_web.field.points_max_per_redeem",
+    "lottery_enabled": "admin_web.field.lottery_enabled",
+    "lottery_level": "admin_web.field.lottery_level",
+    "lottery_winners_count": "admin_web.field.lottery_winners_count",
+    "description": "admin_web.field.description",
+    "category_id": "admin_web.field.category_id",
+    "item_id": "admin_web.field.item_id",
+    "value": "admin_web.field.value",
+    "is_infinity": "admin_web.field.is_infinity",
+    "item_name": "admin_web.field.item_name",
+    "buyer_id": "admin_web.field.buyer_id",
+    "bought_datetime": "admin_web.field.bought_datetime",
+    "unique_id": "admin_web.field.unique_id",
+    "user_id": "admin_web.field.user_id",
+    "operation_value": "admin_web.field.operation_value",
+    "operation_time": "admin_web.field.operation_time",
+    "provider": "admin_web.field.provider",
+    "external_id": "admin_web.field.external_id",
+    "amount": "admin_web.field.amount",
+    "currency": "admin_web.field.currency",
+    "status": "admin_web.field.status",
+    "created_at": "admin_web.field.created_at",
+    "updated_at": "admin_web.field.updated_at",
+    "referrer_id": "admin_web.field.referrer_id",
+    "original_amount": "admin_web.field.original_amount",
+    "timestamp": "admin_web.field.timestamp",
+    "level": "admin_web.field.level",
+    "action": "admin_web.field.action",
+    "resource_type": "admin_web.field.resource_type",
+    "resource_id": "admin_web.field.resource_id",
+    "details": "admin_web.field.details",
+    "ip_address": "admin_web.field.ip_address",
+    "code": "admin_web.field.code",
+    "discount_type": "admin_web.field.discount_type",
+    "discount_value": "admin_web.field.discount_value",
+    "max_uses": "admin_web.field.max_uses",
+    "current_uses": "admin_web.field.current_uses",
+    "expires_at": "admin_web.field.expires_at",
+    "is_active": "admin_web.field.is_active",
+    "promo_code": "admin_web.field.promo_code",
+    "added_at": "admin_web.field.added_at",
+    "rating": "admin_web.field.rating",
+    "text": "admin_web.field.text",
+    "checkin_date": "admin_web.field.checkin_date",
+    "reward_amount": "admin_web.field.reward_amount",
+    "points_awarded": "admin_web.field.points_awarded",
+    "tickets_awarded": "admin_web.field.tickets_awarded",
+    "streak": "admin_web.field.streak",
+    "title": "admin_web.field.title",
+    "prize": "admin_web.field.prize",
+    "winner_user_id": "admin_web.field.winner_user_id",
+    "created_by": "admin_web.field.created_by",
+    "draw_at": "admin_web.field.draw_at",
+    "min_entries": "admin_web.field.min_entries",
+    "min_users": "admin_web.field.min_users",
+    "auto_draw_enabled": "admin_web.field.auto_draw_enabled",
+    "ended_at": "admin_web.field.ended_at",
+    "source": "admin_web.field.source",
+    "event_id": "admin_web.field.event_id",
+    "goods_id": "admin_web.field.goods_id",
+    "goods_name": "admin_web.field.goods_name",
+    "prize_level": "admin_web.field.prize_level",
+    "ticket_count": "admin_web.field.ticket_count",
+    "key": "admin_web.field.key",
+    "value": "admin_web.field.value",
+}
+
+
 # Model Views
-class UserAdmin(AuditModelView, model=User):
-    column_list = [User.telegram_id, User.balance, User.role_id, User.referral_id,
+class UserAdmin(LocalizedAuditModelView, model=User):
+    column_list = [User.telegram_id, User.balance, User.points_balance, User.role_id, User.referral_id,
                    User.registration_date, User.is_blocked]
     column_searchable_list = [User.telegram_id]
-    column_sortable_list = [User.telegram_id, User.balance, User.registration_date]
+    column_sortable_list = [User.telegram_id, User.balance, User.points_balance, User.registration_date]
     column_default_sort = (User.registration_date, True)
-    name = "User"
-    name_plural = "Users"
+    name_key = "admin_web.model.user"
+    name_plural_key = "admin_web.model.users"
+    column_label_keys = COMMON_LABEL_KEYS
+    column_formatters = {"is_blocked": _format_bool_html}
+    column_formatters_detail = {"is_blocked": _format_bool_html}
     icon = "fa-solid fa-users"
 
 
@@ -177,54 +341,24 @@ def _format_perms_html(model, name):
     return Markup(" ".join(badges) + raw)
 
 
-class RoleAdmin(AuditModelView, model=Role):
+class RoleAdmin(LocalizedAuditModelView, model=Role):
     column_list = [Role.id, Role.name, Role.default, Role.permissions]
     column_details_exclude_list = ["users"]
     column_sortable_list = [Role.id, Role.name]
-    name = "Role"
-    name_plural = "Roles"
+    name_key = "admin_web.model.role"
+    name_plural_key = "admin_web.model.roles"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-shield-halved"
-    column_formatters = {"permissions": _format_perms_html}
-    column_formatters_detail = {"permissions": _format_perms_html}
+    column_formatters = {"permissions": _format_perms_html, "default": _format_bool_html}
+    column_formatters_detail = {"permissions": _format_perms_html, "default": _format_bool_html}
     form_args = {
         "permissions": {
-            "description": (
-                "Bitmask value — sum the flags you need: "
-                "USE=1, BROADCAST=2, SETTINGS=4, USERS=8, CATALOG=16, ADMINS=32, "
-                "OWNER=64, STATS=128, BALANCE=256, PROMOS=512. "
-                "Example: 927 = full Admin, 1023 = all (Owner)."
-            ),
+            "description_key": "admin_web.role.permissions.description",
         },
     }
 
 
-class CategoryAdmin(AuditModelView, model=Categories):
-    column_list = [Categories.name]
-    column_searchable_list = [Categories.name]
-    name = "Category"
-    name_plural = "Categories"
-    icon = "fa-solid fa-folder"
-
-
-class GoodsAdmin(AuditModelView, model=Goods):
-    column_list = [Goods.id, Goods.name, Goods.price, Goods.description, Goods.category_id]
-    column_searchable_list = [Goods.name]
-    column_sortable_list = [Goods.id, Goods.name, Goods.price]
-    name = "Product"
-    name_plural = "Products"
-    icon = "fa-solid fa-box"
-
-
-class ItemValuesAdmin(AuditModelView, model=ItemValues):
-    column_list = [ItemValues.id, ItemValues.item_id, ItemValues.value, ItemValues.is_infinity]
-    column_searchable_list = [ItemValues.value]
-    column_sortable_list = [ItemValues.id, ItemValues.item_id]
-    name = "Stock Item"
-    name_plural = "Stock Items"
-    icon = "fa-solid fa-warehouse"
-
-
-class BoughtGoodsAdmin(ModelView, model=BoughtGoods):
+class BoughtGoodsAdmin(LocalizedModelView, model=BoughtGoods):
     column_list = [BoughtGoods.id, BoughtGoods.item_name, BoughtGoods.value,
                    BoughtGoods.price, BoughtGoods.buyer_id, BoughtGoods.bought_datetime,
                    BoughtGoods.unique_id]
@@ -234,12 +368,13 @@ class BoughtGoodsAdmin(ModelView, model=BoughtGoods):
     can_create = False
     can_edit = False
     can_delete = False
-    name = "Purchase"
-    name_plural = "Purchases"
+    name_key = "admin_web.model.purchase"
+    name_plural_key = "admin_web.model.purchases"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-cart-shopping"
 
 
-class OperationsAdmin(ModelView, model=Operations):
+class OperationsAdmin(LocalizedModelView, model=Operations):
     column_list = [Operations.id, Operations.user_id, Operations.operation_value,
                    Operations.operation_time]
     column_searchable_list = [Operations.user_id]
@@ -248,12 +383,13 @@ class OperationsAdmin(ModelView, model=Operations):
     can_create = False
     can_edit = False
     can_delete = False
-    name = "Operation"
-    name_plural = "Operations"
+    name_key = "admin_web.model.operation"
+    name_plural_key = "admin_web.model.operations"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-money-bill-transfer"
 
 
-class PaymentsAdmin(ModelView, model=Payments):
+class PaymentsAdmin(LocalizedModelView, model=Payments):
     column_list = [Payments.id, Payments.provider, Payments.external_id, Payments.user_id,
                    Payments.amount, Payments.currency, Payments.status, Payments.created_at]
     column_searchable_list = [Payments.user_id, Payments.external_id, Payments.provider]
@@ -262,12 +398,13 @@ class PaymentsAdmin(ModelView, model=Payments):
     can_create = False
     can_edit = False
     can_delete = False
-    name = "Payment"
-    name_plural = "Payments"
+    name_key = "admin_web.model.payment"
+    name_plural_key = "admin_web.model.payments"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-credit-card"
 
 
-class ReferralEarningsAdmin(ModelView, model=ReferralEarnings):
+class ReferralEarningsAdmin(LocalizedModelView, model=ReferralEarnings):
     column_list = [ReferralEarnings.id, ReferralEarnings.referrer_id,
                    ReferralEarnings.referral_id, ReferralEarnings.amount,
                    ReferralEarnings.original_amount, ReferralEarnings.created_at]
@@ -277,12 +414,13 @@ class ReferralEarningsAdmin(ModelView, model=ReferralEarnings):
     can_create = False
     can_edit = False
     can_delete = False
-    name = "Referral Earning"
-    name_plural = "Referral Earnings"
+    name_key = "admin_web.model.referral_earning"
+    name_plural_key = "admin_web.model.referral_earnings"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-handshake"
 
 
-class AuditLogAdmin(ModelView, model=AuditLog):
+class AuditLogAdmin(LocalizedModelView, model=AuditLog):
     column_list = [AuditLog.id, AuditLog.timestamp, AuditLog.level, AuditLog.user_id,
                    AuditLog.action, AuditLog.resource_type, AuditLog.resource_id,
                    AuditLog.details, AuditLog.ip_address]
@@ -292,24 +430,13 @@ class AuditLogAdmin(ModelView, model=AuditLog):
     can_create = False
     can_edit = False
     can_delete = False
-    name = "Audit Log"
-    name_plural = "Audit Logs"
+    name_key = "admin_web.model.audit_log"
+    name_plural_key = "admin_web.model.audit_logs"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-clipboard-list"
 
 
-class PromoCodeAdmin(AuditModelView, model=PromoCodes):
-    column_list = [PromoCodes.id, PromoCodes.code, PromoCodes.discount_type,
-                   PromoCodes.discount_value, PromoCodes.max_uses, PromoCodes.current_uses,
-                   PromoCodes.is_active, PromoCodes.expires_at, PromoCodes.created_at]
-    column_searchable_list = [PromoCodes.code]
-    column_sortable_list = [PromoCodes.id, PromoCodes.code, PromoCodes.created_at]
-    column_default_sort = (PromoCodes.id, True)
-    name = "Promo Code"
-    name_plural = "Promo Codes"
-    icon = "fa-solid fa-tag"
-
-
-class CartItemsAdmin(ModelView, model=CartItems):
+class CartItemsAdmin(LocalizedModelView, model=CartItems):
     column_list = [CartItems.id, CartItems.user_id, CartItems.item_name, CartItems.added_at]
     column_searchable_list = [CartItems.user_id, CartItems.item_name]
     column_sortable_list = [CartItems.id, CartItems.added_at]
@@ -317,21 +444,161 @@ class CartItemsAdmin(ModelView, model=CartItems):
     can_create = False
     can_edit = False
     can_delete = False
-    name = "Cart Item"
-    name_plural = "Cart Items"
+    name_key = "admin_web.model.cart_item"
+    name_plural_key = "admin_web.model.cart_items"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-cart-plus"
 
 
 
-class ReviewsAdmin(AuditModelView, model=Reviews):
+class ReviewsAdmin(LocalizedAuditModelView, model=Reviews):
     column_list = [Reviews.id, Reviews.user_id, Reviews.item_name,
                    Reviews.rating, Reviews.text, Reviews.created_at]
     column_searchable_list = [Reviews.user_id, Reviews.item_name]
     column_sortable_list = [Reviews.id, Reviews.rating, Reviews.created_at]
     column_default_sort = (Reviews.id, True)
-    name = "Review"
-    name_plural = "Reviews"
+    name_key = "admin_web.model.review"
+    name_plural_key = "admin_web.model.reviews"
+    column_label_keys = COMMON_LABEL_KEYS
     icon = "fa-solid fa-star"
+
+
+class CheckInsAdmin(LocalizedModelView, model=CheckIns):
+    column_list = [
+        CheckIns.id,
+        CheckIns.user_id,
+        CheckIns.checkin_date,
+        CheckIns.points_awarded,
+        CheckIns.tickets_awarded,
+        CheckIns.streak,
+        CheckIns.created_at,
+    ]
+    column_searchable_list = [CheckIns.user_id]
+    column_sortable_list = [CheckIns.id, CheckIns.user_id, CheckIns.checkin_date, CheckIns.streak]
+    column_default_sort = (CheckIns.id, True)
+    can_create = False
+    can_edit = False
+    can_delete = False
+    name_key = "admin_web.model.checkin"
+    name_plural_key = "admin_web.model.checkins"
+    column_label_keys = COMMON_LABEL_KEYS
+    icon = "fa-solid fa-calendar-check"
+
+
+class LotteryEventsAdmin(LocalizedAuditModelView, model=LotteryEvents):
+    column_list = [
+        LotteryEvents.id,
+        LotteryEvents.title,
+        LotteryEvents.status,
+        LotteryEvents.draw_at,
+        LotteryEvents.min_entries,
+        LotteryEvents.min_users,
+        LotteryEvents.auto_draw_enabled,
+        LotteryEvents.created_by,
+        LotteryEvents.winner_user_id,
+        LotteryEvents.created_at,
+        LotteryEvents.ended_at,
+    ]
+    column_searchable_list = [LotteryEvents.title, LotteryEvents.status]
+    column_sortable_list = [LotteryEvents.id, LotteryEvents.status, LotteryEvents.draw_at, LotteryEvents.created_at]
+    column_default_sort = (LotteryEvents.id, True)
+    name_key = "admin_web.model.lottery_event"
+    name_plural_key = "admin_web.model.lottery_events"
+    column_label_keys = COMMON_LABEL_KEYS
+    column_formatters = {"auto_draw_enabled": _format_bool_html}
+    column_formatters_detail = {"auto_draw_enabled": _format_bool_html}
+    form_args = {
+        "status": {
+            "description_key": "admin_web.lottery_event.status.description",
+        },
+        "draw_at": {
+            "description_key": "admin_web.lottery_event.draw_at.description",
+        },
+        "min_entries": {
+            "description_key": "admin_web.lottery_event.min_entries.description",
+        },
+        "min_users": {
+            "description_key": "admin_web.lottery_event.min_users.description",
+        },
+    }
+    icon = "fa-solid fa-gift"
+
+
+class LotteryEntriesAdmin(LocalizedModelView, model=LotteryEntries):
+    column_list = [
+        LotteryEntries.id,
+        LotteryEntries.event_id,
+        LotteryEntries.user_id,
+        LotteryEntries.source,
+        LotteryEntries.created_at,
+    ]
+    column_searchable_list = [LotteryEntries.user_id, LotteryEntries.source]
+    column_sortable_list = [LotteryEntries.id, LotteryEntries.event_id, LotteryEntries.user_id, LotteryEntries.created_at]
+    column_default_sort = (LotteryEntries.id, True)
+    can_create = False
+    can_edit = False
+    can_delete = False
+    name_key = "admin_web.model.lottery_entry"
+    name_plural_key = "admin_web.model.lottery_entries"
+    column_label_keys = COMMON_LABEL_KEYS
+    icon = "fa-solid fa-ticket"
+
+
+class LotteryWinnersAdmin(LocalizedModelView, model=LotteryWinners):
+    column_list = [
+        LotteryWinners.id,
+        LotteryWinners.event_id,
+        LotteryWinners.user_id,
+        LotteryWinners.goods_name,
+        LotteryWinners.prize_level,
+        LotteryWinners.ticket_count,
+        LotteryWinners.created_at,
+    ]
+    column_searchable_list = [LotteryWinners.user_id, LotteryWinners.goods_name, LotteryWinners.prize_level]
+    column_sortable_list = [LotteryWinners.id, LotteryWinners.event_id, LotteryWinners.created_at]
+    column_default_sort = (LotteryWinners.id, True)
+    can_create = False
+    can_edit = False
+    can_delete = False
+    name_key = "admin_web.model.lottery_winner"
+    name_plural_key = "admin_web.model.lottery_winners"
+    column_label_keys = COMMON_LABEL_KEYS
+    icon = "fa-solid fa-trophy"
+
+
+class BotSettingsAdmin(LocalizedAuditModelView, model=BotSettings):
+    column_list = [BotSettings.key, BotSettings.value, BotSettings.description, BotSettings.updated_at]
+    column_searchable_list = [BotSettings.key, BotSettings.value, BotSettings.description]
+    column_sortable_list = [BotSettings.key, BotSettings.updated_at]
+    can_create = True
+    can_edit = True
+    can_delete = False
+    name_key = "admin_web.model.bot_setting"
+    name_plural_key = "admin_web.model.bot_settings"
+    column_label_keys = COMMON_LABEL_KEYS
+    form_args = {
+        "value": {
+            "description_key": "admin_web.bot_setting.value.description",
+        },
+    }
+    icon = "fa-solid fa-sliders"
+
+
+class OperationsAdminView(BaseView):
+    name = "admin_web.operations"
+    identity = "operations"
+    icon = "fa-solid fa-store"
+
+    @expose("/operations", methods=["GET"], identity="operations")
+    async def operations(self, request: Request):
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/operations.html",
+            {
+                "title": admin_t("admin_web.operations"),
+                "subtitle": admin_t("admin_web.operations.subtitle"),
+            },
+        )
 
 
 # Health & Metrics Endpoints
@@ -387,36 +654,49 @@ async def metrics_json(request: Request) -> JSONResponse:
 def create_admin_app() -> Starlette:
 
     from bot.web.export import export_routes
+    from bot.web.client import client_routes
+    session_max_age = max(int(getattr(EnvKeys, "ADMIN_SESSION_MAX_AGE_DAYS", 30)), 1) * 24 * 60 * 60
 
     routes = [
         Route("/health", health_check),
         Route("/metrics", metrics_json),
         Route("/metrics/prometheus", prometheus_metrics),
-    ] + export_routes
+        Route("/admin/lang", set_admin_language, name="admin_lang"),
+        Route("/admin/font-size", set_admin_font_size, name="admin_font_size"),
+    ] + export_routes + client_routes
 
     app = Starlette(routes=routes)
-    app.add_middleware(SessionMiddleware, secret_key=EnvKeys.SECRET_KEY, max_age=1800)
+    app.add_middleware(SessionMiddleware, secret_key=EnvKeys.SECRET_KEY, max_age=session_max_age)
 
-    auth_backend = AdminAuth(secret_key=EnvKeys.SECRET_KEY)
+    auth_backend = AdminAuth(secret_key=EnvKeys.SECRET_KEY, max_age=session_max_age)
     admin = Admin(
         app,
         engine=Database().engine,
         authentication_backend=auth_backend,
-        title="Telegram Shop Admin",
+        title=admin_t("admin_web.title"),
+        templates_dir="templates",
+        middlewares=[Middleware(AdminLocaleMiddleware)],
     )
+    admin.templates.env.globals["admin_t"] = admin_t
+    admin.templates.env.globals["admin_locale"] = get_admin_locale
+    admin.templates.env.globals["admin_language_url"] = admin_set_language_url
+    admin.templates.env.globals["admin_font_size"] = get_admin_font_size
+    admin.templates.env.globals["admin_font_size_url"] = admin_set_font_size_url
 
+    admin.add_view(OperationsAdminView)
     admin.add_view(UserAdmin)
     admin.add_view(RoleAdmin)
-    admin.add_view(CategoryAdmin)
-    admin.add_view(GoodsAdmin)
-    admin.add_view(ItemValuesAdmin)
     admin.add_view(BoughtGoodsAdmin)
     admin.add_view(OperationsAdmin)
     admin.add_view(PaymentsAdmin)
     admin.add_view(ReferralEarningsAdmin)
     admin.add_view(AuditLogAdmin)
-    admin.add_view(PromoCodeAdmin)
     admin.add_view(CartItemsAdmin)
+    admin.add_view(CheckInsAdmin)
+    admin.add_view(LotteryEventsAdmin)
+    admin.add_view(LotteryEntriesAdmin)
+    admin.add_view(LotteryWinnersAdmin)
+    admin.add_view(BotSettingsAdmin)
     if EnvKeys.REVIEWS_ENABLED == "1":
         admin.add_view(ReviewsAdmin)
 

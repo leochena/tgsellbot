@@ -78,8 +78,8 @@ async def _build_user_profile(bot, target_id: int, caller_perms: int = 0):
         localize('profile.caption', name=user_info.first_name, id=target_id),
         '',
         localize('profile.id', id=target_id),
-        localize('profile.balance', amount=user.get('balance'), currency=EnvKeys.PAY_CURRENCY),
-        localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY),
+        localize('profile.balance', amount=user.get('balance'), currency=EnvKeys.BALANCE_CURRENCY),
+        localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.BALANCE_CURRENCY),
         localize('profile.purchased_count', count=items_count),
         '',
         localize('admin.users.referrals', count=referrals),
@@ -97,7 +97,7 @@ async def _build_user_profile(bot, target_id: int, caller_perms: int = 0):
                               total_earned=int(earnings_stats['total_amount']),
                               total_original=int(earnings_stats['total_original_amount']),
                               earnings_count=earnings_stats['total_earnings_count'],
-                              currency=EnvKeys.PAY_CURRENCY))
+                              currency=EnvKeys.BALANCE_CURRENCY))
 
     return '\n'.join(lines), markup
 
@@ -194,7 +194,7 @@ async def admin_view_referrals_handler(call: CallbackQuery, state: FSMContext):
         item_text=lambda referral_data: localize("referrals.item.format",
                                                  telegram_id=referral_data['telegram_id'],
                                                  total_earned=int(referral_data['total_earned']),
-                                                 currency=EnvKeys.PAY_CURRENCY),
+                                                 currency=EnvKeys.BALANCE_CURRENCY),
         item_callback=lambda referral_data: f"admin-ref-earnings_{user_id}_{referral_data['telegram_id']}",
         page=0,
         back_cb=f"check-user_{user_id}",
@@ -238,7 +238,7 @@ async def admin_referrals_pagination_handler(call: CallbackQuery, state: FSMCont
         item_text=lambda referral_data: localize("referrals.item.format",
                                                  telegram_id=referral_data['telegram_id'],
                                                  total_earned=int(referral_data['total_earned']),
-                                                 currency=EnvKeys.PAY_CURRENCY),
+                                                 currency=EnvKeys.BALANCE_CURRENCY),
         item_callback=lambda referral_data: f"admin-ref-earnings_{user_id}_{referral_data['telegram_id']}",
         page=page,
         back_cb=f"check-user_{user_id}",
@@ -287,7 +287,7 @@ async def admin_referral_earnings_handler(call: CallbackQuery, state: FSMContext
         paginator=paginator,
         item_text=lambda earning: localize("referral.earning.format",
                                            amount=int(earning.amount),
-                                           currency=EnvKeys.PAY_CURRENCY,
+                                           currency=EnvKeys.BALANCE_CURRENCY,
                                            date=earning.created_at.strftime("%d.%m.%Y %H:%M"),
                                            original_amount=int(earning.original_amount)),
         item_callback=lambda earning: f"admin-earning-detail:{earning.id}:admin-ref-earnings_{user_id}_{referral_id}",
@@ -332,7 +332,7 @@ async def admin_view_all_earnings_handler(call: CallbackQuery, state: FSMContext
         paginator=paginator,
         item_text=lambda earning: localize("all.earning.format",
                                            amount=int(earning.amount),
-                                           currency=EnvKeys.PAY_CURRENCY,
+                                           currency=EnvKeys.BALANCE_CURRENCY,
                                            referral_id=earning.referral_id,
                                            date=earning.created_at.strftime("%d.%m.%Y %H:%M")),
         item_callback=lambda earning: f"admin-earning-detail:{earning.id}:admin-view-earnings_{user_id}",
@@ -376,7 +376,7 @@ async def admin_all_earnings_pagination_handler(call: CallbackQuery, state: FSMC
         paginator=paginator,
         item_text=lambda earning: localize("all.earning.format",
                                            amount=int(earning.amount),
-                                           currency=EnvKeys.PAY_CURRENCY,
+                                           currency=EnvKeys.BALANCE_CURRENCY,
                                            referral_id=earning.referral_id,
                                            date=earning.created_at.strftime("%d.%m.%Y %H:%M")),
         item_callback=lambda earning: f"admin-earning-detail:{earning.id}:admin-all-earn_{user_id}_page_{page}",
@@ -421,7 +421,7 @@ async def admin_earning_detail_handler(call: CallbackQuery):
                  telegram_id=earning_info['referral_id'],
                  name=referral_info.first_name,
                  amount=earning_info['amount'],
-                 currency=EnvKeys.PAY_CURRENCY,
+                 currency=EnvKeys.BALANCE_CURRENCY,
                  date=earning_info['created_at'].strftime("%d.%m.%Y %H:%M"),
                  original_amount=earning_info['original_amount']),
         reply_markup=back(back_data)
@@ -472,7 +472,7 @@ async def replenish_user_balance_callback_handler(call: CallbackQuery, state: FS
         return
 
     await call.message.edit_text(
-        localize('payments.replenish_prompt', currency=EnvKeys.PAY_CURRENCY),
+        localize('payments.replenish_prompt', currency=EnvKeys.BALANCE_CURRENCY),
         reply_markup=back(f'check-user_{user_id}')
     )
     await state.set_state(UserMgmtStates.waiting_user_replenish)
@@ -513,7 +513,7 @@ async def process_replenish_user_balance(message: Message, state: FSMContext):
             localize('admin.users.balance.topped',
                      name=user_info.first_name,
                      amount=int(amount),
-                     currency=EnvKeys.PAY_CURRENCY),
+                     currency=EnvKeys.BALANCE_CURRENCY),
             reply_markup=back(f'check-user_{user_id}')
         )
 
@@ -527,7 +527,7 @@ async def process_replenish_user_balance(message: Message, state: FSMContext):
                 chat_id=user_id,
                 text=localize('admin.users.balance.topped.notify',
                               amount=int(amount),
-                              currency=EnvKeys.PAY_CURRENCY),
+                              currency=EnvKeys.BALANCE_CURRENCY),
                 reply_markup=close()
             )
         except (TelegramBadRequest, TelegramForbiddenError) as e:
@@ -540,7 +540,7 @@ async def process_replenish_user_balance(message: Message, state: FSMContext):
             localize('payments.replenish_invalid',
                      min_amount=EnvKeys.MIN_AMOUNT,
                      max_amount=EnvKeys.MAX_AMOUNT,
-                     currency=EnvKeys.PAY_CURRENCY),
+                     currency=EnvKeys.BALANCE_CURRENCY),
             reply_markup=back(f'check-user_{user_id}')
         )
 
@@ -558,7 +558,7 @@ async def deduct_user_balance_callback_handler(call: CallbackQuery, state: FSMCo
         return
 
     await call.message.edit_text(
-        localize('payments.deduct_prompt', currency=EnvKeys.PAY_CURRENCY),
+        localize('payments.deduct_prompt', currency=EnvKeys.BALANCE_CURRENCY),
         reply_markup=back(f'check-user_{user_id}')
     )
     await state.set_state(UserMgmtStates.waiting_user_deduct)
@@ -588,7 +588,7 @@ async def process_deduct_user_balance(message: Message, state: FSMContext):
                 await message.answer(
                     localize('admin.users.balance.insufficient',
                              balance=current_balance,
-                             currency=EnvKeys.PAY_CURRENCY),
+                             currency=EnvKeys.BALANCE_CURRENCY),
                     reply_markup=back(f'check-user_{user_id}')
                 )
             else:
@@ -603,7 +603,7 @@ async def process_deduct_user_balance(message: Message, state: FSMContext):
             localize('admin.users.balance.deducted',
                      name=user_info.first_name,
                      amount=int(amount),
-                     currency=EnvKeys.PAY_CURRENCY),
+                     currency=EnvKeys.BALANCE_CURRENCY),
             reply_markup=back(f'check-user_{user_id}')
         )
 
@@ -617,7 +617,7 @@ async def process_deduct_user_balance(message: Message, state: FSMContext):
                 chat_id=user_id,
                 text=localize('admin.users.balance.deducted.notify',
                               amount=int(amount),
-                              currency=EnvKeys.PAY_CURRENCY),
+                              currency=EnvKeys.BALANCE_CURRENCY),
                 reply_markup=close()
             )
         except (TelegramBadRequest, TelegramForbiddenError) as e:
@@ -630,7 +630,7 @@ async def process_deduct_user_balance(message: Message, state: FSMContext):
             localize('payments.deduct_invalid',
                      min_amount=EnvKeys.MIN_AMOUNT,
                      max_amount=EnvKeys.MAX_AMOUNT,
-                     currency=EnvKeys.PAY_CURRENCY),
+                     currency=EnvKeys.BALANCE_CURRENCY),
             reply_markup=back(f'check-user_{user_id}')
         )
 
@@ -709,3 +709,4 @@ async def unblock_user_handler(call: CallbackQuery):
 
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     await log_audit("unblock_user", user_id=call.from_user.id, resource_type="User", resource_id=str(user_id), details=f"admin={admin_info.first_name}, target={user_info.first_name}")
+

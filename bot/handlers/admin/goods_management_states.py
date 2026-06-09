@@ -238,7 +238,7 @@ async def item_info_callback_handler(call: CallbackQuery, state: FSMContext):
 
     text = (
         f'{localize("admin.goods.item.info.position", name=item_info["item_name"])}\n'
-        f'{localize("admin.goods.item.info.price", price=position_info["price"], currency=EnvKeys.PAY_CURRENCY)}\n'
+        f'{localize("admin.goods.item.info.price", price=position_info["price"], currency=EnvKeys.BALANCE_CURRENCY)}\n'
         f'{localize("admin.goods.item.info.id", id=item_info["id"])}\n'
         f'{localize("admin.goods.item.info.value", value=item_info["value"])}'
     )
@@ -344,3 +344,4 @@ async def process_delete_item_from_position(call: CallbackQuery, state: FSMConte
 
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     await log_audit("delete_item_value", user_id=call.from_user.id, resource_type="ItemValue", resource_id=str(item_id), details=f"admin={admin_info.first_name}, position={position_name or '<?>'}")
+

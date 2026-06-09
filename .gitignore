@@ -107,7 +107,10 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
+.venv*/
 env/
 venv/
 ENV/
@@ -143,3 +146,11 @@ cython_debug/
 .ruff_cache
 
 data
+stock*.csv
+products*.csv
+
+# Local remote-admin helper output
+*.local.log
+logs/
+*.tar.gz
+*.zip
