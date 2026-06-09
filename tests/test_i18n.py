@@ -157,3 +157,19 @@ class TestLocalize:
             finally:
                 reset_current_locale(token)
         get_locale.cache_clear()
+
+    def test_group_welcome_usage_is_localized(self):
+        from bot.i18n.main import get_locale, localize, reset_current_locale, set_current_locale
+        get_locale.cache_clear()
+
+        with patch('bot.i18n.main.EnvKeys') as env:
+            env.BOT_LOCALE = "ru"
+            token = set_current_locale("zh")
+            try:
+                text = localize("group_invite.welcome_usage", name="新用户")
+                assert "/签到" in text
+                assert "/邀请" in text
+                assert "新用户" in text
+            finally:
+                reset_current_locale(token)
+        get_locale.cache_clear()

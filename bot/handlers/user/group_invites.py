@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from html import escape
 
 from aiogram import F, Router
@@ -24,6 +25,8 @@ from bot.misc import EnvKeys
 
 router = Router()
 logger = logging.getLogger(__name__)
+_WELCOME_DEDUP_SECONDS = 60
+_recent_welcome_keys: dict[tuple[int, int], float] = {}
 
 JOINED_STATUSES = {
     ChatMemberStatus.MEMBER,
@@ -73,6 +76,34 @@ def _tomorrow_checkin_points(streak: int) -> int:
 
 def _append_tomorrow_points(text: str, streak: int) -> str:
     return f"{text}\n{localize('checkin.tomorrow_points', points=_tomorrow_checkin_points(streak))}"
+
+
+def _should_send_welcome(chat_id: int, user_id: int) -> bool:
+    now = time.monotonic()
+    expired_before = now - _WELCOME_DEDUP_SECONDS
+    for key, timestamp in list(_recent_welcome_keys.items()):
+        if timestamp < expired_before:
+            _recent_welcome_keys.pop(key, None)
+
+    key = (int(chat_id), int(user_id))
+    if key in _recent_welcome_keys:
+        return False
+    _recent_welcome_keys[key] = now
+    return True
+
+
+def _welcome_usage_text(user) -> str:
+    name = escape(user.first_name or "用户")
+    return localize("group_invite.welcome_usage", name=name)
+
+
+async def _send_group_welcome(bot, chat_id: int, user) -> None:
+    if not _should_send_welcome(chat_id, user.id):
+        return
+    try:
+        await bot.send_message(chat_id=chat_id, text=_welcome_usage_text(user))
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logger.warning("Failed to send group welcome in %s for %s: %s", chat_id, user.id, exc)
 
 
 def _render_invite_share_text(template: str, link: str) -> str:
@@ -214,3 +245,17 @@ async def group_member_update_handler(event: ChatMemberUpdated):
         chat_id=event.chat.id,
         invite_link=invite_link,
     )
+    await _send_group_welcome(event.bot, event.chat.id, user)
+
+
+@router.message(F.new_chat_members)
+async def group_new_members_message_handler(message: Message):
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+    if not _is_configured_group(message.chat.id):
+        return
+
+    for user in message.new_chat_members or []:
+        if user.is_bot:
+            continue
+        await _send_group_welcome(message.bot, message.chat.id, user)

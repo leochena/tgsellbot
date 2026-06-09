@@ -506,6 +506,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "group_invite.not_configured": "❌ Группа для приглашений не настроена.",
         "group_invite.create_failed": "❌ Не удалось создать ссылку. Проверьте, что бот является администратором группы и имеет право приглашать пользователей.",
         "group_invite.rewarded": "👥 Бонус приглашения начислен пригласившему: +{points} балл(ов).",
+        "group_invite.welcome_usage": (
+            "👋 Добро пожаловать, <b>{name}</b>!\n"
+            "В этом чате можно использовать бота напрямую:\n"
+            "✅ /checkin - ежедневный чек-ин и баллы\n"
+            "👥 /invite - получить свою ссылку приглашения\n"
+            "🎁 Баллы можно использовать для розыгрышей и обмена товаров."
+        ),
         "lottery.no_active": "🎁 Активного розыгрыша сейчас нет.\n✅ Чек-ин сегодня: {checked}\n🔥 Серия: {streak} дн.",
         "lottery.active": "🎁 <b>{title}</b>\n🏆 Приз: {prize}\n🎟 Всего билетов: {entries}\n👥 Участников: {users}\n🎫 Ваши билеты: {my_entries}\n✅ Чек-ин сегодня: {checked}\n🔥 Серия: {streak} дн.",
         "admin.menu.lottery": "🎁 Розыгрыши",
@@ -1061,6 +1068,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "group_invite.not_configured": "❌ Invite group is not configured.",
         "group_invite.create_failed": "❌ Failed to create the invite link. Make sure the bot is a group admin with permission to invite users.",
         "group_invite.rewarded": "👥 Invite bonus credited to the inviter: +{points} point(s).",
+        "group_invite.welcome_usage": (
+            "👋 Welcome, <b>{name}</b>!\n"
+            "You can use the bot directly in this group:\n"
+            "✅ /checkin - daily check-in for points\n"
+            "👥 /invite - get your invite link\n"
+            "🎁 Points can be used for lottery entries and product redemption."
+        ),
         "lottery.no_active": "🎁 There is no active lottery right now.\n✅ Checked in today: {checked}\n🔥 Streak: {streak} day(s).",
         "lottery.active": "🎁 <b>{title}</b>\n🏆 Prize: {prize}\n🎟 Total tickets: {entries}\n👥 Participants: {users}\n🎫 Your tickets: {my_entries}\n✅ Checked in today: {checked}\n🔥 Streak: {streak} day(s).",
         "admin.menu.lottery": "🎁 Lotteries",
@@ -1517,6 +1531,13 @@ ZH_OVERRIDES = {
     "group_invite.not_configured": "❌ 还没有配置邀请群组。",
     "group_invite.create_failed": "❌ 创建邀请链接失败。请确认机器人是群管理员，并且有邀请用户/添加用户权限。",
     "group_invite.rewarded": "👥 已给邀请人发放邀请奖励：+{points} 积分。",
+    "group_invite.welcome_usage": (
+        "👋 欢迎 <b>{name}</b> 加入！\n"
+        "本群可以直接使用机器人：\n"
+        "✅ /签到 - 每日签到领取积分\n"
+        "👥 /邀请 - 生成你的专属邀请链接\n"
+        "🎁 积分可参与抽奖，也可兑换商品。"
+    ),
     "lottery.no_active": "🎁 当前没有进行中的抽奖。\n✅ 今日已签到：{checked}\n🔥 连续签到：{streak} 天。",
     "lottery.active": "🎁 <b>{title}</b>\n🏆 奖品：{prize}\n🎟 总抽奖券：{entries}\n👥 参与人数：{users}\n🎫 我的抽奖券：{my_entries}\n✅ 今日已签到：{checked}\n🔥 连续签到：{streak} 天。",
     "admin.lottery.create": "➕ 创建抽奖",

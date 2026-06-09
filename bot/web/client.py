@@ -22,6 +22,7 @@ from bot.database.models import BoughtGoods, Categories, Goods, ItemValues
 from bot.database.models.main import CartItems, PromoCodes, stock_value_hash
 from bot.misc import EnvKeys
 from bot.misc.stock_format import stock_values_from_input
+from bot.web.admin_i18n import get_admin_font_size
 
 logger = logging.getLogger(__name__)
 
@@ -926,22 +927,24 @@ async def client_page(request: Request):
 async def operations_app_page(request: Request):
     if not _is_authenticated(request):
         return RedirectResponse("/admin/login", status_code=302)
-    return HTMLResponse(_client_html())
+    return HTMLResponse(_client_html(font_size=get_admin_font_size(request)))
 
 
 async def client_home(request: Request):
     return RedirectResponse("/admin/operations", status_code=302)
 
 
-def _client_html() -> str:
+def _client_html(font_size: int | None = None) -> str:
     balance_currency = escape(str(EnvKeys.BALANCE_CURRENCY))
     pay_currency = escape(str(EnvKeys.PAY_CURRENCY))
     stars_per_value = escape(str(EnvKeys.STARS_PER_VALUE))
+    admin_font_size = str(font_size or 12)
     return (
         CLIENT_HTML
         .replace("__BALANCE_CURRENCY__", balance_currency)
         .replace("__PAY_CURRENCY__", pay_currency)
         .replace("__STARS_PER_VALUE__", stars_per_value)
+        .replace("__ADMIN_FONT_SIZE__", admin_font_size)
     )
 
 
@@ -1102,6 +1105,7 @@ CLIENT_HTML = r"""<!doctype html>
   <style>
     :root {
       color-scheme: light;
+      font-size: __ADMIN_FONT_SIZE__pt;
       --bg: #f6f7f8;
       --panel: #ffffff;
       --line: #d9dee5;
@@ -1118,7 +1122,7 @@ CLIENT_HTML = r"""<!doctype html>
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font: 1rem/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     header {
       display: flex;
@@ -1132,8 +1136,8 @@ CLIENT_HTML = r"""<!doctype html>
       top: 0;
       z-index: 20;
     }
-    h1 { margin: 0; font-size: 18px; font-weight: 700; }
-    h2 { margin: 0 0 12px; font-size: 15px; }
+    h1 { margin: 0; font-size: 1.125rem; font-weight: 700; }
+    h2 { margin: 0 0 12px; font-size: 1rem; }
     main { padding: 18px 20px 28px; }
     .actions, .row, .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .grid { display: grid; gap: 14px; }
@@ -1152,9 +1156,9 @@ CLIENT_HTML = r"""<!doctype html>
       padding: 12px;
       min-height: 70px;
     }
-    .metric strong { display: block; font-size: 22px; line-height: 1.1; }
-    .metric span { color: var(--muted); font-size: 12px; }
-    label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; font-size: 1.35rem; line-height: 1.1; }
+    .metric span { color: var(--muted); font-size: .9rem; }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: .9rem; }
     input, select, textarea {
       width: 100%;
       border: 1px solid var(--line);
@@ -1187,7 +1191,7 @@ CLIENT_HTML = r"""<!doctype html>
     button:disabled { cursor: not-allowed; opacity: 0.55; }
     table { width: 100%; border-collapse: collapse; background: #ffffff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
     th, td { padding: 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-    th { color: var(--muted); font-size: 12px; font-weight: 700; background: #fafbfc; }
+    th { color: var(--muted); font-size: .9rem; font-weight: 700; background: #fafbfc; }
     tr:last-child td { border-bottom: 0; }
     .name { font-weight: 700; }
     .muted { color: var(--muted); }
@@ -1197,7 +1201,7 @@ CLIENT_HTML = r"""<!doctype html>
       min-height: 24px;
       border-radius: 999px;
       padding: 2px 8px;
-      font-size: 12px;
+      font-size: .9rem;
       border: 1px solid var(--line);
       color: var(--muted);
       background: #ffffff;
@@ -1220,7 +1224,7 @@ CLIENT_HTML = r"""<!doctype html>
     #status {
       min-height: 22px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 1rem;
     }
     #status.error { color: var(--danger); }
     #status.ok { color: var(--ok); }
@@ -1932,17 +1936,19 @@ CLIENT_HTML = r"""<!doctype html>
 
     $("categoryForm").onsubmit = async (event) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const target = event.currentTarget;
+      const form = new FormData(target);
       try {
         await api("/admin/api/categories", { method: "POST", body: JSON.stringify({ name: form.get("name") }) });
-        event.currentTarget.reset();
+        target.reset();
         await loadCatalog();
       } catch (err) { setStatus(err.message, "error"); }
     };
 
     $("productForm").onsubmit = async (event) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const target = event.currentTarget;
+      const form = new FormData(target);
       const payload = {
         name: form.get("name"),
         price: form.get("price"),
@@ -1958,14 +1964,15 @@ CLIENT_HTML = r"""<!doctype html>
       };
       try {
         await api("/admin/api/products", { method: "POST", body: JSON.stringify(payload) });
-        event.currentTarget.reset();
+        target.reset();
         await loadCatalog();
       } catch (err) { setStatus(err.message, "error"); }
     };
 
     $("promoForm").onsubmit = async (event) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const target = event.currentTarget;
+      const form = new FormData(target);
       const payload = {
         code: form.get("code"),
         discount_type: form.get("discount_type"),
@@ -1978,7 +1985,7 @@ CLIENT_HTML = r"""<!doctype html>
       };
       try {
         await api("/admin/api/promos", { method: "POST", body: JSON.stringify(payload) });
-        event.currentTarget.reset();
+        target.reset();
         await loadCatalog();
       } catch (err) { setStatus(err.message, "error"); }
     };

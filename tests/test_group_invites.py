@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from aiogram.enums import ChatMemberStatus
+
 from bot.database.methods import (
     get_group_invite_share_template,
     get_or_create_group_invite_link,
@@ -144,3 +146,39 @@ class TestGroupInviteHandlers:
         answer = msg.answer.await_args.args[0]
         assert "checkin.tomorrow_points" in answer
         assert "'points': 2" in answer
+
+    async def test_member_join_sends_group_usage_once(self):
+        from bot.handlers.user import group_invites
+        from bot.handlers.user.group_invites import (
+            group_member_update_handler,
+            group_new_members_message_handler,
+        )
+
+        group_invites._recent_welcome_keys.clear()
+        bot = AsyncMock()
+        user = SimpleNamespace(id=150300, first_name="新用户", is_bot=False)
+        event = SimpleNamespace(
+            chat=SimpleNamespace(id=-1003919149099),
+            old_chat_member=SimpleNamespace(status=ChatMemberStatus.LEFT),
+            new_chat_member=SimpleNamespace(status=ChatMemberStatus.MEMBER, user=user),
+            invite_link=None,
+            bot=bot,
+        )
+
+        with patch("bot.handlers.user.group_invites.EnvKeys") as env:
+            env.ANNOUNCEMENT_CHAT_ID = "-1003919149099"
+            env.CHANNEL_ID = ""
+            await group_member_update_handler(event)
+
+            message = SimpleNamespace(
+                chat=SimpleNamespace(id=-1003919149099, type="supergroup"),
+                new_chat_members=[user],
+                bot=bot,
+            )
+            await group_new_members_message_handler(message)
+
+        bot.send_message.assert_awaited_once()
+        kwargs = bot.send_message.await_args.kwargs
+        assert kwargs["chat_id"] == -1003919149099
+        assert "group_invite.welcome_usage" in kwargs["text"]
+        assert "新用户" in kwargs["text"]

@@ -248,6 +248,19 @@ class TestWebClientCatalog:
         assert "余额价格（UStars）" in html
         assert "不是真实 USD" in html
         assert "1 UStars = 0.91" in html
+        assert "font-size: 12pt;" in html
+        assert "font: 1rem/1.45" in html
+
+        large_html = _client_html(font_size=18)
+        assert "font-size: 18pt;" in large_html
+
+    async def test_client_forms_keep_target_before_async_reset(self):
+        from bot.web.client import CLIENT_HTML
+
+        assert "const target = event.currentTarget;" in CLIENT_HTML
+        assert "new FormData(target)" in CLIENT_HTML
+        assert "target.reset();" in CLIENT_HTML
+        assert "event.currentTarget.reset();" not in CLIENT_HTML
 
     async def test_client_html_includes_promo_management(self):
         from bot.web.client import CLIENT_HTML
