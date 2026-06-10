@@ -502,10 +502,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "checkin.success": "✅ Чек-ин выполнен!\n🎯 Баллы: +{points}\n🎟 Билетов: +{tickets}\n🔥 Серия: {streak} дн.",
         "checkin.already": "✅ Сегодня вы уже отметились.\n🎟 Билетов сегодня: {tickets}\n🔥 Серия: {streak} дн.",
         "checkin.tomorrow_points": "📅 Завтра при чек-ине: +{points} балл(ов).",
-        "group_invite.link": "👥 Скопируйте текст ниже и отправьте друзьям:\n<code>{share_text}</code>\n\nБонус приглашения начисляется после чек-ина нового пользователя: +{points} балл(ов).",
+        "group_invite.link": "👥 Скопируйте текст ниже и отправьте друзьям:\n<code>{share_text}</code>\n\nБонус приглашения начисляется после чек-ина нового пользователя. Награда: {reward}.",
         "group_invite.not_configured": "❌ Группа для приглашений не настроена.",
         "group_invite.create_failed": "❌ Не удалось создать ссылку. Проверьте, что бот является администратором группы и имеет право приглашать пользователей.",
         "group_invite.rewarded": "👥 Бонус приглашения начислен пригласившему: +{points} балл(ов).",
+        "group_invite.reward.fixed": "+{points} балл(ов)",
+        "group_invite.reward.range": "{start}-{end}: +{points}",
+        "group_invite.reward.open": "{start}+: +{points}",
         "group_invite.welcome_usage": (
             "👋 Добро пожаловать, <b>{name}</b>!\n"
             "В этом чате можно использовать бота напрямую:\n"
@@ -1064,10 +1067,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "checkin.success": "✅ Check-in complete!\n🎯 Points: +{points}\n🎟 Tickets: +{tickets}\n🔥 Streak: {streak} day(s).",
         "checkin.already": "✅ You already checked in today.\n🎟 Tickets today: {tickets}\n🔥 Streak: {streak} day(s).",
         "checkin.tomorrow_points": "📅 Tomorrow's check-in reward: +{points} point(s).",
-        "group_invite.link": "👥 Copy the text below and send it to friends:\n<code>{share_text}</code>\n\nInvite bonus is credited after the new user's check-in: +{points} point(s).",
+        "group_invite.link": "👥 Copy the text below and send it to friends:\n<code>{share_text}</code>\n\nInvite bonus is credited after the new user's check-in. Reward: {reward}.",
         "group_invite.not_configured": "❌ Invite group is not configured.",
         "group_invite.create_failed": "❌ Failed to create the invite link. Make sure the bot is a group admin with permission to invite users.",
         "group_invite.rewarded": "👥 Invite bonus credited to the inviter: +{points} point(s).",
+        "group_invite.reward.fixed": "+{points} point(s)",
+        "group_invite.reward.range": "{start}-{end}: +{points}",
+        "group_invite.reward.open": "{start}+: +{points}",
         "group_invite.welcome_usage": (
             "👋 Welcome, <b>{name}</b>!\n"
             "You can use the bot directly in this group:\n"
@@ -1527,10 +1533,13 @@ ZH_OVERRIDES = {
     "checkin.success": "✅ 签到成功！\n🎯 积分：+{points}\n🎟 抽奖券：+{tickets}\n🔥 连续签到：{streak} 天。",
     "checkin.already": "✅ 今天已经签到过。\n🎟 今日抽奖券：{tickets}\n🔥 连续签到：{streak} 天。",
     "checkin.tomorrow_points": "📅 明天签到预计获得：+{points} 积分。",
-    "group_invite.link": "👥 复制下面这段发给好友：\n<code>{share_text}</code>\n\n新用户通过链接进群并签到后，邀请奖励才会发放：+{points} 积分。",
+    "group_invite.link": "👥 复制下面这段发给好友：\n<code>{share_text}</code>\n\n新用户通过链接进群并签到后，邀请奖励才会发放。奖励：{reward}。",
     "group_invite.not_configured": "❌ 还没有配置邀请群组。",
     "group_invite.create_failed": "❌ 创建邀请链接失败。请确认机器人是群管理员，并且有邀请用户/添加用户权限。",
     "group_invite.rewarded": "👥 已给邀请人发放邀请奖励：+{points} 积分。",
+    "group_invite.reward.fixed": "+{points} 积分",
+    "group_invite.reward.range": "第 {start}-{end} 人：+{points} 积分",
+    "group_invite.reward.open": "第 {start} 人起：+{points} 积分",
     "group_invite.welcome_usage": (
         "👋 欢迎 <b>{name}</b> 加入！\n"
         "本群可以直接使用机器人：\n"

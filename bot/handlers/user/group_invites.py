@@ -14,7 +14,9 @@ from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 from bot.database.methods import (
     ensure_user_exists,
     get_group_invite_share_template,
+    get_group_invite_reward_tiers_text,
     get_or_create_group_invite_link,
+    parse_group_invite_reward_tiers,
     perform_daily_checkin,
     record_group_invite_join,
     reward_group_inviter_after_checkin,
@@ -97,6 +99,21 @@ def _welcome_usage_text(user) -> str:
     return localize("group_invite.welcome_usage", name=name)
 
 
+def _invite_reward_display(default_points: int, tiers_text: str | None) -> str:
+    tiers = parse_group_invite_reward_tiers(tiers_text)
+    if not tiers:
+        return localize("group_invite.reward.fixed", points=max(int(default_points or 0), 0))
+
+    parts: list[str] = []
+    for index, (start, points) in enumerate(tiers):
+        if index + 1 < len(tiers):
+            end = tiers[index + 1][0] - 1
+            parts.append(localize("group_invite.reward.range", start=start, end=end, points=points))
+        else:
+            parts.append(localize("group_invite.reward.open", start=start, points=points))
+    return "；".join(parts)
+
+
 async def _send_group_welcome(bot, chat_id: int, user) -> None:
     if not _should_send_welcome(chat_id, user.id):
         return
@@ -148,11 +165,12 @@ async def _send_invite_link(message_or_call: Message | CallbackQuery, state: FSM
         return
 
     template = await get_group_invite_share_template(get_locale())
+    reward_tiers = await get_group_invite_reward_tiers_text()
     share_text = _render_invite_share_text(template, link)
     text = localize(
         "group_invite.link",
         share_text=escape(share_text),
-        points=EnvKeys.GROUP_INVITE_REWARD_POINTS,
+        reward=_invite_reward_display(EnvKeys.GROUP_INVITE_REWARD_POINTS, reward_tiers),
     )
     if _is_callback_source(message_or_call):
         await message_or_call.message.edit_text(text, reply_markup=back("back_to_menu"))

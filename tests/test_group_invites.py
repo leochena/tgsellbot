@@ -5,15 +5,26 @@ from aiogram.enums import ChatMemberStatus
 
 from bot.database.methods import (
     get_group_invite_share_template,
+    get_bot_setting,
     get_or_create_group_invite_link,
+    parse_group_invite_reward_tiers,
     perform_daily_checkin,
     record_group_invite_join,
     reward_group_inviter_after_checkin,
+    resolve_group_invite_reward_points,
 )
 from bot.database.methods.read import check_user
 
 
 class TestGroupInviteMethods:
+
+    def test_parse_and_resolve_reward_tiers(self):
+        assert parse_group_invite_reward_tiers("1=1,10=2; 30:3") == [(1, 1), (10, 2), (30, 3)]
+        assert parse_group_invite_reward_tiers("bad,0=9,3=0,5=2") == [(5, 2)]
+        assert resolve_group_invite_reward_points(1, 1, "1=1,3=2,5=4") == 1
+        assert resolve_group_invite_reward_points(3, 1, "1=1,3=2,5=4") == 2
+        assert resolve_group_invite_reward_points(5, 1, "1=1,3=2,5=4") == 4
+        assert resolve_group_invite_reward_points(5, 7, "") == 7
 
     async def test_get_or_create_group_invite_link_reuses_existing(self, user_factory):
         await user_factory(telegram_id=150001)
@@ -51,6 +62,32 @@ class TestGroupInviteMethods:
         assert inviter["points_balance"] == 7
         assert invited["points_balance"] == 1
 
+    async def test_reward_tiers_increase_points_by_successful_invite_count(self, user_factory):
+        await user_factory(telegram_id=150030, points_balance=0)
+        invite_link = await get_or_create_group_invite_link(
+            150030,
+            -1003919149099,
+            AsyncMock(return_value="https://t.me/+tiers"),
+        )
+
+        awarded = []
+        for offset in range(1, 6):
+            invited_id = 150030 + offset
+            await record_group_invite_join(invited_id, -1003919149099, invite_link)
+            success, _, _ = await perform_daily_checkin(invited_id, reward_amount=1, tickets_per_day=0)
+            assert success is True
+            reward = await reward_group_inviter_after_checkin(
+                invited_id,
+                -1003919149099,
+                points=1,
+                reward_tiers="1=1,3=2,5=4",
+            )
+            awarded.append((reward["successful_invite_count"], reward["points_awarded"]))
+
+        assert awarded == [(1, 1), (2, 1), (3, 2), (4, 2), (5, 4)]
+        inviter = await check_user(150030)
+        assert inviter["points_balance"] == 10
+
     async def test_self_invite_is_ignored(self, user_factory):
         await user_factory(telegram_id=150020)
         await get_or_create_group_invite_link(150020, -1002, AsyncMock(return_value="https://t.me/+self"))
@@ -71,6 +108,9 @@ class TestGroupInviteMethods:
         en_template = await get_group_invite_share_template("en")
         assert "{link}" in en_template
         assert "AI public-benefit" in en_template
+
+        reward_tiers = await get_bot_setting("group_invite_reward_tiers")
+        assert reward_tiers == "1=1,10=2,30=3"
 
 
 class TestGroupInviteHandlers:

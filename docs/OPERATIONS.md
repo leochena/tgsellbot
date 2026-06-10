@@ -171,6 +171,8 @@ Operational notes:
 - Lottery winners are drawn randomly from individual entries, so more tickets increase the winning probability.
 - Drawing a winner changes the event status to `drawn`; closing changes it to `closed`.
 - Check-in rewards are recorded as points, not cash balance. They appear in `users.points_balance` and do not create cash-balance operation history.
+- Group invite rewards are credited only after the invited user joins through a personal invite link and completes check-in.
+- `bot_settings.group_invite_reward_tiers` controls tiered invite rewards. Use `1=1,10=2,30=3`: the left side is the inviter's cumulative successful invite count, the right side is the points for this invite. Empty value falls back to fixed `GROUP_INVITE_REWARD_POINTS`.
 
 ## 24/7 Running Notes
 

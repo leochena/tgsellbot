@@ -426,6 +426,13 @@ class BotSettings(Database.BASE):
                 "value": "Присоединяйтесь к группе AI public-benefit: {link}\nЕжедневно отмечайтесь и получайте баллы. Баллы можно использовать в розыгрышах и для обмена на товары: GPT Plus, SMS-верификация, email и другие ресурсы.",
                 "description": "Russian invite copy template; {link} is replaced with the user's personal invite link.",
             },
+            "group_invite_reward_tiers": {
+                "value": "1=1,10=2,30=3",
+                "description": (
+                    "邀请阶梯奖励，格式：1=1,10=2,30=3。左边是邀请人累计有效邀请人数，右边是本次奖励积分；"
+                    "例如第 10 个有效邀请开始每人 2 积分，第 30 个开始每人 3 积分。留空则使用 GROUP_INVITE_REWARD_POINTS 固定奖励。"
+                ),
+            },
             "rules_text": {
                 "value": "",
                 "description": "Optional generic rules text shown above the built-in user trading guide.",

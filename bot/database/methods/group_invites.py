@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Awaitable, Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from bot.database import Database
@@ -14,10 +14,64 @@ from bot.database.models import User
 from bot.database.models.main import BotSettings, GroupInviteLinks, GroupInviteRewards
 
 GROUP_INVITE_SHARE_TEMPLATE_KEY = "group_invite_share_template"
+GROUP_INVITE_REWARD_TIERS_KEY = "group_invite_reward_tiers"
 DEFAULT_GROUP_INVITE_SHARE_TEMPLATE = (
     "点击加入 AI 公益分享频道：{link}\n"
     "每日签到免费领取积分，积分可抽奖、兑换商品。分享 GPT Plus、接码、邮箱等资源。"
 )
+DEFAULT_GROUP_INVITE_REWARD_TIERS = "1=1,10=2,30=3"
+
+
+def parse_group_invite_reward_tiers(value: str | None) -> list[tuple[int, int]]:
+    """
+    Parse invite reward tiers.
+
+    Format: "1=1,10=2,30=3" or "1:1; 10:2; 30:3".
+    The first number is the effective invite count threshold, the second is
+    points awarded for each invite at or above that threshold.
+    """
+    if not value:
+        return []
+
+    tiers: dict[int, int] = {}
+    for raw_part in value.replace(";", ",").split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        separator = "=" if "=" in part else ":"
+        if separator not in part:
+            continue
+        threshold_raw, points_raw = part.split(separator, 1)
+        try:
+            threshold = int(threshold_raw.strip())
+            points = int(points_raw.strip())
+        except ValueError:
+            continue
+        if threshold <= 0 or points <= 0:
+            continue
+        tiers[threshold] = points
+
+    return sorted(tiers.items())
+
+
+def resolve_group_invite_reward_points(
+        successful_invite_count: int,
+        default_points: int,
+        tiers_text: str | None,
+) -> int:
+    default_points = max(int(default_points or 0), 0)
+    tiers = parse_group_invite_reward_tiers(tiers_text)
+    if not tiers:
+        return default_points
+
+    points = default_points
+    count = max(int(successful_invite_count or 0), 0)
+    for threshold, tier_points in tiers:
+        if count >= threshold:
+            points = tier_points
+        else:
+            break
+    return max(int(points or 0), 0)
 
 
 async def ensure_user_exists(user_id: int) -> None:
@@ -177,13 +231,12 @@ async def reward_group_inviter_after_checkin(
         invited_id: int,
         chat_id: int | str,
         points: int,
+        reward_tiers: str | None = None,
 ) -> dict | None:
     """
     Award inviter points once after the invited user successfully checks in.
     """
     points = max(int(points or 0), 0)
-    if points <= 0:
-        return None
 
     invited_id = int(invited_id)
     chat_id_str = str(chat_id)
@@ -209,6 +262,27 @@ async def reward_group_inviter_after_checkin(
         if not inviter:
             return None
 
+        if reward_tiers is None:
+            reward_tiers = (await s.execute(
+                select(BotSettings.value).where(BotSettings.key == GROUP_INVITE_REWARD_TIERS_KEY)
+            )).scalar_one_or_none()
+
+        previous_successful_invites = (await s.execute(
+            select(func.count(GroupInviteRewards.id)).where(
+                GroupInviteRewards.inviter_id == reward.inviter_id,
+                GroupInviteRewards.chat_id == chat_id_str,
+                GroupInviteRewards.rewarded_at.is_not(None),
+            )
+        )).scalar_one()
+        successful_invite_count = int(previous_successful_invites or 0) + 1
+        points = resolve_group_invite_reward_points(
+            successful_invite_count=successful_invite_count,
+            default_points=points,
+            tiers_text=reward_tiers,
+        )
+        if points <= 0:
+            return None
+
         inviter.points_balance += points
         reward.rewarded_at = datetime.datetime.now(datetime.timezone.utc)
         reward.points_awarded = points
@@ -229,6 +303,7 @@ async def reward_group_inviter_after_checkin(
         "invited_id": invited_id,
         "chat_id": chat_id_str,
         "points_awarded": points,
+        "successful_invite_count": successful_invite_count,
     }
 
 
@@ -238,6 +313,10 @@ async def get_bot_setting(key: str, default: str = "") -> str:
             select(BotSettings.value).where(BotSettings.key == key)
         )).scalar_one_or_none()
         return value if value is not None else default
+
+
+async def get_group_invite_reward_tiers_text(default: str = "") -> str:
+    return await get_bot_setting(GROUP_INVITE_REWARD_TIERS_KEY, default)
 
 
 async def get_group_invite_share_template(locale: str | None = None) -> str:
