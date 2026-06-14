@@ -86,6 +86,8 @@ def validate_env() -> tuple[list[str], list[str]]:
     payment_enabled = bool(_get("CRYPTO_PAY_TOKEN")) or bool(_get("TELEGRAM_PROVIDER_TOKEN")) or stars_enabled
     if not payment_enabled:
         errors.append("No payment method is enabled. Set CRYPTO_PAY_TOKEN, TELEGRAM_PROVIDER_TOKEN, or STARS_PER_VALUE > 0.")
+    if _get("TELEGRAM_PROVIDER_TOKEN"):
+        warnings.append("TELEGRAM_PROVIDER_TOKEN enables the Stripe/card provider through Telegram Payments. Keep Stars enabled for digital goods sold inside Telegram.")
 
     try:
         min_amount = int(_get("MIN_AMOUNT", "0"))

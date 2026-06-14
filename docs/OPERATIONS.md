@@ -12,7 +12,7 @@ This project is a deployable Telegram digital-goods shop bot. It sells products 
 - Payment options already supported by the codebase:
   - CryptoPay.
   - Telegram Stars.
-  - Telegram Payments provider token.
+  - Stripe/card payments through a Telegram Payments provider token.
 - Digital delivery model:
   - Product metadata lives in `goods`.
   - Deliverable stock/card/license/account values live in `item_values`.
@@ -34,6 +34,8 @@ Do not commit real secrets.
   - `CRYPTO_PAY_TOKEN`, or
   - `STARS_PER_VALUE` greater than `0`, or
   - `TELEGRAM_PROVIDER_TOKEN`.
+
+`TELEGRAM_PROVIDER_TOKEN` is the Telegram Payments provider token used for Stripe/card checkout. Connect the payment provider in BotFather and paste the resulting provider token into `.env`; do not put a Stripe secret key directly into this bot unless you later add a separate Stripe Checkout webhook flow.
 
 For production, also set:
 
@@ -123,6 +125,8 @@ Never commit real stock CSV files. `.gitignore` ignores `stock*.csv` and `produc
 1. Create a Telegram bot in BotFather and set `TOKEN`.
 2. Get your Telegram numeric ID and set `OWNER_ID`.
 3. Choose payment method and set the required token/rate.
+   - Use Telegram Stars for digital goods sold inside Telegram.
+   - Use `TELEGRAM_PROVIDER_TOKEN` for Stripe/card payments when selling physical goods or services supported by Telegram Payments.
 4. Set strong `POSTGRES_PASSWORD`, `ADMIN_PASSWORD`, and `SECRET_KEY`.
 5. Run `scripts/check_config.py`.
 6. Start PostgreSQL/Redis and run Alembic migrations.

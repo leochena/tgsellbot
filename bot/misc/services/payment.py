@@ -75,7 +75,7 @@ async def send_fiat_invoice(
         description: Optional[str] = None,
 ):
     """
-    Send invoice via Telegram Payments (fiat provider).
+    Send invoice via Telegram Payments provider token for Stripe/card checkout.
     `amount` is given in major units (e.g., RUB, USD).
     """
     provider_token = EnvKeys.TELEGRAM_PROVIDER_TOKEN

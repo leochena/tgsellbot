@@ -166,6 +166,13 @@ class TestSendFiatInvoice:
             with pytest.raises(RuntimeError, match="TELEGRAM_PROVIDER_TOKEN"):
                 await send_fiat_invoice(bot=bot, chat_id=456, amount=200)
 
+    def test_fiat_payment_copy_mentions_stripe_or_card(self):
+        from bot.i18n.strings import TRANSLATIONS
+
+        assert "Stripe" in TRANSLATIONS["en"]["btn.pay.tg"]
+        assert "Stripe" in TRANSLATIONS["en"]["payments.success_suffix.tg"]
+        assert "Stripe" in TRANSLATIONS["en"]["payments.invoice.desc.topup.fiat"]
+
 
 class TestCryptoPayAPI:
 
