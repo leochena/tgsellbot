@@ -1,14 +1,15 @@
 # TGSellBot
 
-TGSellBot is a Telegram 24/7 auto-sales bot based on `interlumpen/Telegram-shop`.
+TGSellBot is a Telegram 24/7 auto-sales bot for legal digital goods, JSON-file delivery, points redemption, group invite rewards, lotteries, and web-based shop operations.
 
-Use it for legal digital goods only, such as license keys, invite codes, membership codes, account entitlements, or other deliverable text values that can be sent automatically after purchase.
+Use it for legal goods only, such as license keys, invite codes, membership codes, account entitlements, JSON credentials, or other deliverable values that can be sent automatically after purchase.
 
-## Current Local State
+## Repository State
 
-- Repository path: `D:\tgsellbot`
-- Upstream source: `https://github.com/interlumpen/Telegram-shop.git`
+- Repository: `https://github.com/leochena/tgsellbot`
 - Main operations guide: `docs/OPERATIONS.md`
+- Chinese README: `README.zh-CN.md`
+- Current screenshots: `assets/admin-login-zh.png`, `assets/product-operations-zh.png`, `assets/json-stock-form-zh.png`
 - Config checker: `scripts/check_config.py`
 - Catalog importer: `scripts/seed_catalog.py`
 - Windows runner: `scripts/start_windows.ps1`
@@ -25,12 +26,16 @@ Copy-Item .env.example .env
 .\.venv312\Scripts\python.exe scripts\seed_catalog.py examples\products.sample.csv --dry-run
 ```
 
-Then fill real `.env` credentials, start PostgreSQL, run migrations, import real stock, and launch `run.py`.
+Then fill real `.env` credentials, start PostgreSQL, run migrations, import real stock, and launch `run.py` or `run_admin.py`.
 
 ## Language Support
 
-The default interface language comes from `BOT_LOCALE`, and each user can override it from Profile -> Language. The current built-in locales are `ru` and `en`.
+The default bot language comes from `BOT_LOCALE`, and each user can override it from the bot language menu. The current built-in bot locales are `ru`, `en`, and `zh`.
+
+The web admin UI supports Chinese and English, plus 12/14/16/18 pt font-size switching.
 
 ## Engagement Modules
 
-Daily check-in and lottery are integrated into the same bot. Check-in credits user balance and can issue tickets for the active lottery. Admins manage lotteries from Admin panel -> Lotteries.
+Daily check-in, group invite rewards, points redemption, and lottery are integrated into the same bot. Check-in credits points, not cash balance, and can issue tickets for the active lottery. Invite rewards are credited only after the invited user joins through a personal invite link and completes check-in.
+
+Admins manage product prize-pool settings, lottery events, bot settings, and invite reward tiers from the web admin.

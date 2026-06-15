@@ -30,29 +30,21 @@ Language: [English](README.md) | [简体中文](README.zh-CN.md)
 
 ---
 
-## 🔀 Looking for Physical Goods Shop?
+## 🖼️ Current Screenshots
 
-**💾 This version is for DIGITAL GOODS** (accounts, keys, licenses, etc.)
+The screenshots below are generated from the current local admin/client UI with sanitized demo data.
 
-**📦 Need to sell PHYSICAL GOODS instead?** (if you need functions such as inventory, shipping, delivery addresses, etc.)
-👉 **Try this new version**: [Telegram Physical Goods Shop](https://github.com/interlumpen/Telegram-shop-Physical)
+![Admin login](assets/admin-login-zh.png)
 
-The physical goods version features a well-thought-out delivery processing system, full interaction with the bot's core
-via the command line (CLI) without the need for a shell and advanced monitoring of all processes.
+![Product operations](assets/product-operations-zh.png)
 
----
-
-## 🎬 Demo
-
-<div align="center">
-  <img src="assets/admin_pov.gif" alt="Admin Interface" width="400"/>
-  <img src="assets/user_pov.gif" alt="User Interface" width="400"/>
-</div>
+![JSON stock form](assets/json-stock-form-zh.png)
 
 ## 📋 Table of Contents
 
 - [Features](#-features)
 - [Community & Links](#-community--links)
+- [Current Screenshots](#-current-screenshots)
 - [Security](#-security)
 - [Architecture](#-architecture)
 - [Tech Stack](#-tech-stack)
@@ -69,8 +61,12 @@ via the command line (CLI) without the need for a shell and advanced monitoring 
 
 ### Core Shop Functionality
 
-- **Product Management**: Categories, items with stock tracking
+- **Product Management**: Categories, goods, stock tracking, JSON delivery files, and promo codes in one admin page
 - **Transactional Purchases**: ACID-compliant purchase process
+- **Digital Delivery**: Single JSON purchase is delivered as `.json`; multiple JSON purchases are delivered as `.zip`
+- **Points Economy**: Daily check-in points, streak rewards, product redemption by points, and per-redemption quantity limits
+- **Group Invite Rewards**: Per-user group invite links, reward after invited user check-in, and tiered reward rules
+- **Lottery Module**: Product prize pool, prize levels, per-level winner count, and automatic/manual draw support
 - **Multiple Payment Methods**:
     - 💎 CryptoPay (TON, USDT, BTC, ETH)
     - ⭐ Telegram Stars
@@ -94,7 +90,7 @@ via the command line (CLI) without the need for a shell and advanced monitoring 
     - Real-time statistics dashboard
     - User management with balance control
     - Role management: create custom roles, assign roles to users
-    - Product and category management
+    - Product/category/stock/promo management in the unified Product Operations page
     - Broadcast messaging system
     - Promo code management (create, toggle, delete, view usage stats)
     - CSV data export (users, purchases, payments, operations) with date filtering
@@ -224,19 +220,27 @@ via the command line (CLI) without the need for a shell and advanced monitoring 
 
 ### System Architecture
 
-<details>
-<summary>System Architecture Schema (click to expand)</summary>
+```text
+Telegram users/groups
+        |
+        v
+Aiogram bot handlers + i18n middleware
+        |
+        +--> Shop, cart, payment, points redemption, check-in, invite, lottery
+        |
+        v
+PostgreSQL models and transactional services
+        |
+        +--> goods / item_values / purchases / payments / promo_codes
+        +--> check_ins / group_invite_links / lottery_events / bot_settings
 
-![System Architecture](assets/system_architecture.png)
-</details>
+Local web admin
+        |
+        +--> SQLAdmin database views
+        +--> Product Operations UI for categories, products, JSON stock, and promo codes
+```
 
 ### Database Schema
-
-<details>
-<summary>Database Schema (click to expand)</summary>
-
-![Database Schema](assets/database_schema.png)
-</details>
 
 - **Users**: Telegram ID, balance, referral tracking
 - **Roles**: Permission-based access control
@@ -246,6 +250,9 @@ via the command line (CLI) without the need for a shell and advanced monitoring 
 - **Promo Codes**: Discount codes with type, value, usage tracking, and category/item binding
 - **Cart**: User shopping cart items with promo code association
 - **Reviews**: Product ratings and text reviews (one per user per item)
+- **Points & Check-ins**: Daily check-in records, streak rewards, and points balance
+- **Group Invites**: Per-user group invite links and reward attribution after invited-user check-in
+- **Lottery**: Lottery events, entries, winners, and product prize pool settings
 - **Audit Log**: Structured action log with user, action, resource, details, and IP tracking
 
 ### Key Design Patterns
@@ -564,8 +571,6 @@ Open in browser: http://localhost:9090/admin
 
 The bot will send relevant messages to your channel when adding products.
 
-![Stock](assets/stock.png)
-
 2. **Apply latest migrations** (if updating):
 
 ```bash
@@ -590,10 +595,13 @@ The bot includes a web-based admin panel powered by SQLAdmin, accessible at http
 
 - Login with credentials from your `.env` file (`ADMIN_USERNAME` / `ADMIN_PASSWORD`)
 - Browse all database tables: users, roles, categories, products, purchases, payments, operations, referral earnings,
-  audit logs
+  check-ins, invite records, lottery events, bot settings, and audit logs
+- Use Product Operations for day-to-day category, product, stock, JSON file, and promo-code management
 - Search, filter, and sort records
 - Read-only access for financial tables (purchases, payments, operations) and audit logs
 - All create/edit/delete operations through the web panel are automatically audit-logged
+
+![Product operations](assets/product-operations-zh.png)
 
 #### Monitoring Endpoints
 
@@ -631,50 +639,16 @@ The bot includes a recovery system for stuck payments:
 #### Main Navigation
 
 - `/start` - Initialize bot and show main menu
-- Shop navigation via inline keyboard
-- Quick access to all features
-
-#### Main Menu
-
-![Main Menu](assets/menu_picture.png)
-
-#### Shop Categories
-
-![Categories](assets/categories_picture.png)
-
-#### Shop Goods
-
-![Goods](assets/positions_picture.png)
-
-#### Shop Item Information & Purchase
-
-![Item Information](assets/position_description_picture.png)
-
-![Item Information](assets/position_purchase.png)
-
-#### Profile
-
-![Profile](assets/user_profile.png)
-
-#### Balance top up
-
-![top up](assets/balance_topup.png)
-
-#### Referral System
-
-![Referral system](assets/referral_system.png)
-
-#### Purchases
-
-![Purchases](assets/user_purchases.png)
-
-### Cart
-
-![Cart](assets/cart.png)
-
-## Operation History
-
-![History](assets/operation_history.png)
+- Language switch from the bot home/profile flow
+- Shop navigation through categories and product detail pages
+- Quantity selection for cart purchases and points redemption
+- Balance top-up with enabled payment providers
+- Telegram Stars to internal balance conversion when configured
+- Promo code redemption from the bot home and product detail pages
+- Product reviews and purchase history
+- Daily check-in for points and lottery tickets
+- Group invite link generation; invite rewards are credited after the invited user checks in
+- Lottery status, entries, and winners
 
 </details>
 
@@ -685,34 +659,26 @@ The bot includes a recovery system for stuck payments:
 
 Available for users with admin permissions (built-in ADMIN/OWNER or custom roles):
 
-#### Admin Panel
+#### Product Operations
 
-![Admin Panel](assets/admin_menu_picture.png)
+The unified Product Operations page manages:
 
-#### Shop Management
+- Categories
+- Products and prices
+- Points redemption price and per-order redemption limit
+- Lottery prize-pool participation, prize level, and winner count
+- Text stock and JSON stock
+- Multi-file JSON upload
+- Balance promo codes and product discount codes
 
-![Products](assets/shop_menu_picture.png)
-
-#### Categories & Items Management
-
-- Categories, products, stock control
-
-![Categories](assets/categories_management_menu_picture.png)
-
-![Products](assets/goods_management_menu_picture.png)
+![JSON stock form](assets/json-stock-form-zh.png)
 
 #### User Management
 
 - View profiles, block/unblock users, assign roles (USERS permission)
 - Adjust balances: top-up and deduction (separate BALANCE permission)
 
-![User Management](assets/user_menu_picture.png)
-
 #### Role Management
-
-![Role Management](assets/roles.png)
-
-![Role Management](assets/role_menu_picture.png)
 
 - 10 granular permission bits for fine-grained access control:
     - **USE** (1) — basic bot access
@@ -730,15 +696,18 @@ Available for users with admin permissions (built-in ADMIN/OWNER or custom roles
 - Permission-aware admin panel: each user sees only the buttons their permissions allow
 - Permission-safe: bitwise subset validation prevents creating or assigning roles exceeding your own
 
-#### Broadcasting & Analytics
+#### Engagement Management
 
-![Broadcast](assets/broadcast_picture.png)
+- Configure check-in points and lottery ticket rewards.
+- Configure group invite target chat and invite share copy.
+- Configure tiered invite rewards such as `1=1,10=2,30=3`.
+- Manage lottery events, entries, winners, and product prize-pool fields through admin models.
 
-![Statistics](assets/shop_statistics.png)
+#### Broadcasting, Analytics, and Monitoring
 
-#### System Monitoring
-
-![Logs](assets/bot_logs.png)
+- Broadcast messaging for permitted admins.
+- Health endpoint, JSON metrics, Prometheus metrics, and CSV exports.
+- Structured audit logs for admin and financial actions.
 
 </details>
 

@@ -24,6 +24,16 @@
 - 欢迎提交 [Issues](https://github.com/leochena/tgsellbot/issues) 和 [Pull Requests](https://github.com/leochena/tgsellbot/pulls)
 - 贡献说明: [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)
 
+## 当前界面截图
+
+以下截图由当前管理端生成，内容已替换为示例数据。
+
+![后台登录](assets/admin-login-zh.png)
+
+![商品运营](assets/product-operations-zh.png)
+
+![JSON 库存表单](assets/json-stock-form-zh.png)
+
 ## 主要能力
 
 - 商品分类和商品管理

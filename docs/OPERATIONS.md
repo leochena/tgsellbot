@@ -4,11 +4,12 @@ This project is a deployable Telegram digital-goods shop bot. It sells products 
 
 ## What Is Done
 
-- Source base: `interlumpen/Telegram-shop`, MIT licensed.
+- Public repository: `https://github.com/leochena/tgsellbot`.
+- Source base: derived from `interlumpen/Telegram-shop`; see `NOTICE` for the preserved MIT notice.
 - Bot framework: Python, Aiogram 3.
 - Database: PostgreSQL with Alembic migrations.
 - Optional cache/session storage: Redis.
-- Admin UI: SQLAdmin at `/admin`.
+- Admin UI: SQLAdmin at `/admin`, plus the unified Product Operations page.
 - Payment options already supported by the codebase:
   - CryptoPay.
   - Telegram Stars.
@@ -16,6 +17,8 @@ This project is a deployable Telegram digital-goods shop bot. It sells products 
 - Digital delivery model:
   - Product metadata lives in `goods`.
   - Deliverable stock/card/license/account values live in `item_values`.
+  - JSON stock can be imported from one or multiple `.json` files.
+  - A single JSON purchase is delivered as `.json`; multiple JSON purchases are delivered as `.zip`.
   - Purchase records live in `bought_goods`.
   - A finite stock value is removed from `item_values` after sale.
   - An infinite value remains reusable after sale.
@@ -39,7 +42,7 @@ Do not commit real secrets.
 
 For production, also set:
 
-- `BOT_LOCALE=en` or `ru` as the default language for users who have not chosen their own language.
+- `BOT_LOCALE=zh`, `en`, or `ru` as the default language for users who have not chosen their own language.
 - `PAY_CURRENCY=USD`, `EUR`, `RUB`, or another Telegram-supported 3-letter provider currency where relevant.
 - `BALANCE_CURRENCY=UStars` or another internal balance label shown to users. This is not a real fiat currency.
 - `REDIS_ENABLED=1` with Redis available, or `0` for simpler low-traffic polling mode.
@@ -100,7 +103,31 @@ Keep the admin panel bound to localhost unless you put it behind a trusted tunne
 
 If you deploy without Docker, use `deploy/systemd/tgsellbot.service` as the systemd template. Adjust `/opt/tgsellbot`, user/group, PostgreSQL, and Redis service names to match the VPS.
 
-## Importing Products And Stock
+## Managing Products And Stock
+
+The recommended day-to-day workflow is the web admin Product Operations page:
+
+```text
+http://localhost:9090/admin/operations
+```
+
+It manages categories, products, points redemption settings, lottery prize-pool fields, stock, JSON delivery files, and promo codes in one place.
+
+Current screenshots in the repository:
+
+- `assets/admin-login-zh.png`
+- `assets/admin-operations-zh.png`
+- `assets/product-operations-zh.png`
+- `assets/json-stock-form-zh.png`
+
+JSON stock rules:
+
+- A JSON object is treated as one structured stock item.
+- A JSON array is treated as multiple stock items.
+- A JSON object with an `items`, `stock`, `values`, or `data` array imports that array as multiple stock items.
+- Selecting multiple `.json` files merges them into one stock batch.
+
+## Importing Products And Stock By CSV
 
 Use CSV import for initial catalog and future restocks:
 
@@ -144,6 +171,7 @@ Current built-in locales:
 
 - `ru`
 - `en`
+- `zh`
 
 For existing deployments, run migrations before restarting the updated bot:
 
@@ -161,12 +189,15 @@ docker compose run --rm bot alembic upgrade head
 
 The bot includes linked engagement modules:
 
-- Users press Daily check-in from the main menu.
-- A successful daily check-in credits `CHECKIN_POINTS_REWARD` to the user's points balance.
+- Users press Daily check-in from the main menu or send the group check-in command where configured.
+- A successful daily check-in credits points to the user's points balance.
+- The daily check-in reward can increase with streak days.
 - If an active lottery exists, the same check-in grants `CHECKIN_TICKETS_PER_DAY` lottery entries.
-- Products can set `points_price`; a value greater than `0` enables one-item points redemption for that product.
+- Products can set `points_price`; a value greater than `0` enables points redemption for that product.
+- Products can set `points_max_per_redeem` to limit quantity per redemption.
 - Users can open Lottery from the main menu to see the active event, total tickets, participant count, their own tickets, and check-in status.
-- Admins with promo-management permission can open Admin panel -> Lotteries to create a lottery, draw a winner, or close the current event.
+- Admins can configure lottery product prize-pool fields on goods: enabled flag, prize level, and winner count.
+- Admins with the required permission can create lottery events, draw winners, or close the current event.
 
 Operational notes:
 
