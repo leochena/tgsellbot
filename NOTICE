@@ -1,6 +1,15 @@
+TGSellBot
+Copyright (c) 2026 leochena
+
+This project is licensed under the MIT License.
+See LICENSE for the full license text.
+
+This project is based in part on interlumpen/Telegram-shop.
+Original upstream notice:
+
 MIT License
 
-Copyright (c) 2026 leochena
+Copyright (c) 2023 Galashev Sergei
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -7,7 +7,24 @@ tools, real-time monitoring, and disaster recovery capabilities.
 [![Aiogram](https://img.shields.io/badge/aiogram-3.22+-green.svg)](https://docs.aiogram.dev/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-blue.svg)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-ready-blue.svg)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/leochena/tgsellbot?style=social)](https://github.com/leochena/tgsellbot/stargazers)
+[![Contributors](https://img.shields.io/github/contributors/leochena/tgsellbot)](https://github.com/leochena/tgsellbot/graphs/contributors)
+[![Issues](https://img.shields.io/github/issues/leochena/tgsellbot)](https://github.com/leochena/tgsellbot/issues)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.github/CONTRIBUTING.md)
+[![Sponsor](https://img.shields.io/badge/Sponsor-support-f06292.svg)](https://t.me/+6dcMgO8XsN41NWNl)
+[![Telegram](https://img.shields.io/badge/Telegram-community-26A5E4.svg)](https://t.me/+6dcMgO8XsN41NWNl)
+[![linux.do](https://img.shields.io/badge/linux.do-friendly_link-00A3FF.svg)](https://linux.do)
+
+---
+
+## 🌐 Community & Links
+
+- Telegram交流频道: [https://t.me/+6dcMgO8XsN41NWNl](https://t.me/+6dcMgO8XsN41NWNl)
+- 友情链接: [linux.do](https://linux.do)
+- 欢迎提交 [Issues](https://github.com/leochena/tgsellbot/issues) 和
+  [Pull Requests](https://github.com/leochena/tgsellbot/pulls)，贡献说明见 [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)。
+- 如果这个项目对你有帮助，可以通过 GitHub Star 或 README 顶部的 Sponsor/Support 入口支持项目。
 
 ---
 
@@ -33,6 +50,7 @@ via the command line (CLI) without the need for a shell and advanced monitoring 
 ## 📋 Table of Contents
 
 - [Features](#-features)
+- [Community & Links](#-community--links)
 - [Security](#-security)
 - [Architecture](#-architecture)
 - [Tech Stack](#-tech-stack)
@@ -54,12 +72,12 @@ via the command line (CLI) without the need for a shell and advanced monitoring 
 - **Multiple Payment Methods**:
     - 💎 CryptoPay (TON, USDT, BTC, ETH)
     - ⭐ Telegram Stars
-    - 💳 Telegram Payments (Fiat)
+    - 💳 Telegram Payments provider token (for supported Stripe/card checkout scenarios)
 - **Shopping Cart**: Add multiple items, apply promo codes per item, atomic multi-item checkout with receipt
 - **Promo Codes**: Percent/fixed/balance discount types, category/item binding, usage limits, expiration
 - **Product Reviews**: 1–5 star ratings with optional text, one review per user per item
 - **Referral System**: Configurable commission rates
-- **Multi-language Support**: Russian and English localization
+- **Multi-language Support**: Russian, English, and Chinese localization
 
 ### Admin Features
 
@@ -267,7 +285,7 @@ via the command line (CLI) without the need for a shell and advanced monitoring 
 
 - **CryptoPay API**: Cryptocurrency payments (with circuit breaker)
 - **Telegram Stars API**: Native digital currency
-- **Telegram Payments API**: Traditional payment providers
+- **Telegram Payments API**: Provider-token checkout such as Stripe/card payments for supported goods and services
 
 ### Web Admin & Monitoring
 
@@ -302,7 +320,7 @@ The application requires the following environment variables:
 
 | Variable                  | Description                                                                                  | Default |
 |---------------------------|----------------------------------------------------------------------------------------------|---------|
-| `TELEGRAM_PROVIDER_TOKEN` | [Token for Telegram Payments](https://core.telegram.org/bots/payments#getting-a-token)       | -       |
+| `TELEGRAM_PROVIDER_TOKEN` | [Telegram Payments provider token](https://core.telegram.org/bots/payments#getting-a-token) for supported Stripe/card checkout | -       |
 | `CRYPTO_PAY_TOKEN`        | [CryptoPay API token](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7) | -       |
 | `STARS_PER_VALUE`         | Stars exchange rate for internal balance top-ups (0 to disable)                               | `0.91`  |
 | `PAY_CURRENCY`            | Real provider currency code (RUB, USD, EUR, etc.)                                            | `RUB`   |
@@ -331,7 +349,7 @@ The application requires the following environment variables:
 
 | Variable          | Description                        | Default     |
 |-------------------|------------------------------------|-------------|
-| `BOT_LOCALE`      | Localization language (ru/en)      | `ru`        |
+| `BOT_LOCALE`      | Localization language (ru/en/zh)   | `ru`        |
 | `BOT_LOGFILE`     | Path to main log file              | `bot.log`   |
 | `BOT_AUDITFILE`   | Path to audit log file             | `audit.log` |
 | `LOG_TO_STDOUT`   | Console logging (1/0)              | `1`         |
@@ -424,8 +442,8 @@ disabled. The bot remains fully functional but without caching optimizations.
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/interlumpen/Telegram-shop.git
-cd Telegram-shop
+git clone https://github.com/leochena/tgsellbot.git
+cd tgsellbot
 ```
 
 2. **Create environment file**
@@ -487,8 +505,8 @@ Open in browser: http://localhost:9090/admin
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/interlumpen/Telegram-shop.git
-cd Telegram-shop
+git clone https://github.com/leochena/tgsellbot.git
+cd tgsellbot
 ```
 
 2. **Create virtual environment**
@@ -1006,11 +1024,17 @@ The test suite validates:
 
 ## 🤝 Contributing
 
+Issues and pull requests are welcome. Please use the GitHub issue templates for bug reports and feature requests, and
+read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a pull request.
+
+Quick flow:
+
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Add tests or documentation for behavior changes
+4. Commit your changes (`git commit -m 'Add amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
 
 ### Development Guidelines
 
@@ -1022,7 +1046,16 @@ The test suite validates:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+The main project license is the MIT License. See [LICENSE](LICENSE) for details.
+
+Additional project terms:
+
+- 本项目可免费商用、自用。
+- 禁止二次闭源打包售卖。
+- 禁止作为付费独立产品分发。
+
+Portions of this project are derived from [interlumpen/Telegram-shop](https://github.com/interlumpen/Telegram-shop),
+which was released under the MIT License. The original copyright and license notice are preserved in [NOTICE](NOTICE).
 
 ## 🙏 Acknowledgments
 
@@ -1033,4 +1066,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- Create an [Issue](https://github.com/interlumpen/Telegram-shop/issues) for bug reports
+- Create an [Issue](https://github.com/leochena/tgsellbot/issues) for bug reports
+- Open a [Pull Request](https://github.com/leochena/tgsellbot/pulls) for fixes and improvements
+- Join the Telegram交流频道: [https://t.me/+6dcMgO8XsN41NWNl](https://t.me/+6dcMgO8XsN41NWNl)
