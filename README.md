@@ -3,6 +3,8 @@
 A production-ready Telegram shop bot with advanced security features, transactional integrity, comprehensive admin
 tools, real-time monitoring, and disaster recovery capabilities.
 
+Language: [English](README.md) | [简体中文](README.zh-CN.md)
+
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Aiogram](https://img.shields.io/badge/aiogram-3.22+-green.svg)](https://docs.aiogram.dev/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-blue.svg)](https://www.postgresql.org/)
