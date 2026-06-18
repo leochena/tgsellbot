@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute(sa.text(
         """
-        insert into roles (name, default, permissions)
+        insert into roles (name, "default", permissions)
         values
             ('CHANNEL_OWNER', false, 1),
             ('STATION_OWNER', false, 1),
