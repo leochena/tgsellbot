@@ -114,6 +114,10 @@ Model Lab, and platform operations layer.
   `model-drain-readiness-check` command that combines isolated runner,
   server-local key manifest, secret-file permission, and systemd timer checks
   without running drain jobs or printing raw keys.
+- Platform production closeout now has a read-only `platform-closeout-check`
+  command that aggregates public health, Mini App launch smoke, certificate
+  readiness, Telegram initData auth guard, ledger cutover, and Model Lab drain
+  readiness in one JSON report.
 - Model Lab report sharing now has Mini App and public report page controls for
   copying links, opening the system share sheet when available, and falling
   back to Telegram share URLs. Private reports still do not generate public
@@ -202,10 +206,10 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 101 tests, including Bot WebApp menu markup validation, the ledger cutover gate, the Model Lab key manifest and drain-readiness checks, Model Lab job/report list pagination, and the Mini App certificate renewal gate.
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 29 tests, including the read-only Model Lab drain-readiness gate and raw-key redaction checks.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 104 tests, including Bot WebApp menu markup validation, the ledger cutover gate, the Model Lab key manifest and drain-readiness checks, Model Lab job/report list pagination, the Mini App certificate renewal gate, and platform closeout aggregation.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 32 tests, including the read-only Model Lab drain-readiness gate, raw-key redaction checks, and platform closeout aggregation.
   - `.\.venv312\Scripts\python.exe scripts\platform_ops.py model-drain-readiness-check` returned a safe not-ready JSON locally when default Linux server paths and systemd are unavailable on Windows.
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 676 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 679 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
   - Local Browser smoke on

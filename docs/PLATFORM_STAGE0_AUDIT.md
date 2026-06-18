@@ -58,6 +58,9 @@ This audit converts `tgsellbot_AI频道与模型验证平台升级开发计划�
   - isolated Worker runner and sudoers templates that let the drain service execute `platform_worker.py` as `tgsellbot-worker` without inheriting main app secrets or database settings,
   - launch-gate Bot menu markup validation that renders the configured main menu and verifies the channel, Model Lab, and contribution buttons are WebApp buttons for `/platform/app` tabs,
   - Mini App public TLS certificate and certbot renewal checks through `platform-cert-check`,
+  - production closeout aggregation through `platform-closeout-check` for public
+    health, launch smoke, TLS, Telegram auth guard, ledger cutover, and Model
+    Lab drain readiness,
   - Model Lab run and relay availability sample retention command plus daily systemd timer templates,
   - redacted `platform_ops_run` audit events plus Platform Dashboard readouts for latest Model Lab drain and retention outcomes,
   - Model Lab drain-readiness command that checks the isolated runner,
@@ -197,6 +200,10 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-cert-check --url https://tg.1so.org/platform/app --certbot --systemd-timers`
   checks the public TLS certificate, minimum days remaining, certbot certificate
   inventory, and certbot renewal timer without printing private key material.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-closeout-check --certbot --systemd-timers`
+  runs the read-only production closeout gate for public health, Mini App
+  launch smoke, TLS certificate, Telegram initData auth guard, ledger cutover,
+  and Model Lab drain readiness.
 
 ## Sprint Backlog
 
@@ -256,10 +263,10 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py model-key-manifest-check --help` passed.
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py model-drain-readiness-check` returned safe not-ready JSON locally when the default Linux server paths and systemd are absent on Windows.
 - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 29 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 32 tests.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints tests\test_platform_api.py::TestPlatformAPI::test_public_report_page_uses_public_api_without_telegram_init_data -q` passed: 2 tests.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 101 tests, including Model Lab job/report list pagination and the Mini App certificate renewal gate.
-- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 676 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 104 tests, including Model Lab job/report list pagination, the Mini App certificate renewal gate, and platform closeout aggregation.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 679 tests.
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-cert-check --url https://tg.1so.org/platform/app --min-valid-days 21 --timeout 5` passed with certificate expiry `2026-09-16T16:45:44+00:00` and 89 days remaining.
 - Virginia production `scripts/platform_ops.py platform-cert-check --certbot --systemd-timers`
   passed with certificate expiry `2026-09-16T16:45:44+00:00`, 89 days

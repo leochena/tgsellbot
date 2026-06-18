@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
+from urllib.error import HTTPError
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 
@@ -438,6 +439,60 @@ def evaluate_model_drain_readiness(
     }
 
 
+def evaluate_platform_closeout_readiness(
+        *,
+        health: dict[str, Any],
+        launch: dict[str, Any],
+        certificate: dict[str, Any],
+        auth_guard: dict[str, Any],
+        ledger: dict[str, Any] | None = None,
+        model_drain: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    health_ok = bool(health.get("ok"))
+    launch_ok = bool(launch.get("ok")) and bool(launch.get("ready", {}).get("current_launch_live"))
+    certificate_ok = bool(certificate.get("ok"))
+    auth_guard_ok = bool(auth_guard.get("ok"))
+    ledger_ok = True if ledger is None else bool(ledger.get("allow_source_switch"))
+    model_drain_ok = True if model_drain is None else bool(model_drain.get("ready", {}).get("manual_drain"))
+
+    next_actions: list[str] = []
+    if not health_ok:
+        next_actions.append("Fix the public /health endpoint before considering the platform launch closed out.")
+    if not launch_ok:
+        next_actions.append("Fix platform launch settings, Mini App smoke, or Bot WebApp menu markup.")
+    if not certificate_ok:
+        next_actions.extend(certificate.get("next_actions") or ["Fix the Mini App TLS certificate checks."])
+    if not auth_guard_ok:
+        next_actions.append("Fix the public API auth guard; unauthenticated user endpoints must reject missing initData.")
+    if ledger is not None and not ledger_ok:
+        next_actions.append("Keep ledger reads on users.balance/users.points_balance until ledger-cutover-check passes.")
+    if model_drain is not None and not model_drain_ok:
+        next_actions.append("Keep Model Lab batch drain disabled until model-drain-readiness-check passes and manual drain is approved.")
+    if not next_actions:
+        next_actions.append("Platform closeout checks pass for the selected gates.")
+
+    return {
+        "ok": health_ok and launch_ok and certificate_ok and auth_guard_ok and ledger_ok and model_drain_ok,
+        "ready": {
+            "public_health": health_ok,
+            "public_launch": launch_ok,
+            "certificate": certificate_ok,
+            "telegram_auth_guard": auth_guard_ok,
+            "ledger_source_switch": None if ledger is None else ledger_ok,
+            "model_lab_manual_drain": None if model_drain is None else model_drain_ok,
+        },
+        "checks": {
+            "public_health": health,
+            "platform_launch": launch,
+            "platform_certificate": certificate,
+            "telegram_auth_guard": auth_guard,
+            "ledger_cutover": ledger if ledger is not None else {"ok": True, "skipped": True},
+            "model_drain_readiness": model_drain if model_drain is not None else {"ok": True, "skipped": True},
+        },
+        "next_actions": next_actions,
+    }
+
+
 def _model_lab_runner_check(path: str) -> dict[str, Any]:
     return _local_file_check(path, require_executable=True, require_root_owner=True)
 
@@ -625,6 +680,78 @@ def _smoke_platform_webapp(url: str, timeout: float) -> dict[str, Any]:
         "contains_title": "TGSellBot Platform" in body,
         "contains_telegram_sdk": "telegram-web-app.js" in body,
         "bytes_read": len(body.encode("utf-8")),
+    }
+
+
+def _smoke_platform_health(platform_url: str, timeout: float) -> dict[str, Any]:
+    health_url = _platform_url_with_path(platform_url, "/health")
+    if not health_url.get("ok"):
+        return health_url
+    result = _fetch_json_endpoint(health_url["url"], timeout=timeout, expected_status=200)
+    payload = result.get("json") if isinstance(result.get("json"), dict) else {}
+    result.update({
+        "ok": bool(result.get("ok")) and payload.get("status") == "healthy" and payload.get("checks", {}).get("database") == "ok",
+        "status_text": payload.get("status", ""),
+        "database": payload.get("checks", {}).get("database", ""),
+    })
+    return result
+
+
+def _smoke_telegram_auth_guard(platform_url: str, timeout: float) -> dict[str, Any]:
+    api_url = _platform_url_with_path(platform_url, "/platform/api/channels/discover")
+    if not api_url.get("ok"):
+        return api_url
+    result = _fetch_json_endpoint(api_url["url"], timeout=timeout, expected_status=401)
+    payload = result.get("json") if isinstance(result.get("json"), dict) else {}
+    result.update({
+        "ok": bool(result.get("ok")) and payload.get("code") == "telegram_init_data_invalid",
+        "code": payload.get("code", ""),
+    })
+    return result
+
+
+def _platform_url_with_path(platform_url: str, path: str) -> dict[str, Any]:
+    from bot.misc.url_safety import UnsafeURL, normalize_public_https_url
+
+    try:
+        safe_url = normalize_public_https_url(platform_url, allow_path=True)
+    except UnsafeURL as exc:
+        return {"ok": False, "url": "", "error": str(exc)}
+    parts = urlsplit(safe_url.normalized)
+    return {
+        "ok": True,
+        "url": urlunsplit((parts.scheme, parts.netloc, path, "", "")),
+        "error": "",
+    }
+
+
+def _fetch_json_endpoint(url: str, *, timeout: float, expected_status: int) -> dict[str, Any]:
+    request = Request(url, headers={"user-agent": "tgsellbot-platform-closeout-check/1.0"})
+    status = 0
+    body = b""
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            status = int(getattr(response, "status", 0) or response.getcode())
+            body = response.read(64 * 1024)
+    except HTTPError as exc:
+        status = int(exc.code)
+        body = exc.read(64 * 1024)
+    except Exception as exc:  # pragma: no cover - exercised by production smoke, not unit tests.
+        return {"ok": False, "url": url, "status": 0, "json": {}, "error": str(exc)}
+
+    text = body.decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(text or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    return {
+        "ok": status == int(expected_status) and isinstance(payload, dict),
+        "url": url,
+        "status": status,
+        "expected_status": int(expected_status),
+        "json": payload if isinstance(payload, dict) else {},
+        "bytes_read": len(body),
+        "error": "" if status == int(expected_status) else f"Expected HTTP {expected_status}, got {status}.",
     }
 
 
@@ -902,6 +1029,50 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             systemd_timers=systemd_timers,
             min_valid_days=args.min_valid_days,
         )
+    if args.command == "platform-closeout-check":
+        from bot.database.methods.platform import reconcile_ledger_balances
+
+        settings = await _platform_launch_settings(args.url)
+        platform_url = settings["platform_webapp_url"]
+        launch_smoke = _smoke_platform_webapp(platform_url, args.timeout)
+        launch = evaluate_platform_launch_readiness(settings, smoke=launch_smoke)
+        target = _platform_certificate_target_from_url(platform_url)
+        certificate = None
+        certbot = None
+        systemd_timers = None
+        if target.get("ok"):
+            certificate = _probe_https_certificate(target["host"], target["port"], args.timeout)
+            if args.certbot:
+                certbot = _run_certbot_certificate_check(target["host"], args.timeout)
+            if args.systemd_timers:
+                systemd_timers = _run_certbot_timer_check(args.timeout)
+        certificate_readiness = evaluate_platform_certificate_readiness(
+            target,
+            certificate,
+            certbot=certbot,
+            systemd_timers=systemd_timers,
+            min_valid_days=args.min_valid_days,
+        )
+        ledger_readiness = None
+        if not args.skip_ledger:
+            ledger_readiness = evaluate_ledger_cutover_readiness(
+                await reconcile_ledger_balances(limit=args.ledger_limit, offset=0)
+            )
+        drain_readiness = None
+        if not args.skip_model_drain:
+            drain_readiness = evaluate_model_drain_readiness(
+                _model_lab_runner_check(args.worker_runner),
+                _model_lab_manifest_check(args.key_manifest_file),
+                _run_systemd_unit_state(args.timer_name, args.timeout),
+            )
+        return evaluate_platform_closeout_readiness(
+            health=_smoke_platform_health(platform_url, args.timeout),
+            launch=launch,
+            certificate=certificate_readiness,
+            auth_guard=_smoke_telegram_auth_guard(platform_url, args.timeout),
+            ledger=ledger_readiness,
+            model_drain=drain_readiness,
+        )
     raise ValueError(f"unknown command: {args.command}")
 
 
@@ -1063,6 +1234,22 @@ def build_parser() -> argparse.ArgumentParser:
     cert.add_argument("--timeout", type=float, default=5.0, help="Network or command timeout in seconds.")
     cert.add_argument("--certbot", action="store_true", help="Also run certbot certificates -d <host> and summarize it.")
     cert.add_argument("--systemd-timers", action="store_true", help="Also verify a certbot renewal timer is listed by systemd.")
+
+    closeout = subparsers.add_parser(
+        "platform-closeout-check",
+        help="Run read-only production closeout checks for the public Mini App, auth guard, certificate, ledger gate, and Model Lab drain readiness.",
+    )
+    closeout.add_argument("--url", default=None, help="Override bot_settings.platform_webapp_url for a dry-run check.")
+    closeout.add_argument("--timeout", type=float, default=5.0, help="Network or command timeout in seconds.")
+    closeout.add_argument("--min-valid-days", type=int, default=21, help="Minimum acceptable TLS certificate days remaining.")
+    closeout.add_argument("--certbot", action="store_true", help="Also run certbot certificates -d <host> and summarize it.")
+    closeout.add_argument("--systemd-timers", action="store_true", help="Also verify a certbot renewal timer is listed by systemd.")
+    closeout.add_argument("--skip-ledger", action="store_true", help="Skip the read-only ledger source-of-truth gate.")
+    closeout.add_argument("--ledger-limit", type=int, default=5000, help="Full-scan limit for ledger-cutover-check.")
+    closeout.add_argument("--skip-model-drain", action="store_true", help="Skip the Model Lab drain readiness gate.")
+    closeout.add_argument("--key-manifest-file", default=DEFAULT_MODEL_TEST_KEY_MANIFEST, help="Server-local Model Lab key manifest path.")
+    closeout.add_argument("--worker-runner", default=DEFAULT_MODEL_LAB_WORKER_RUNNER, help="Root-owned executable wrapper for the isolated Worker.")
+    closeout.add_argument("--timer-name", default=DEFAULT_MODEL_TEST_DRAIN_TIMER, help="Systemd timer unit that schedules model-test-drain.")
     return parser
 
 

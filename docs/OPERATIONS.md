@@ -129,6 +129,7 @@ curl -fsS -o /tmp/platform_app.html https://tg.1so.org/platform/app
 cd /opt/tgsellbot
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-launch-check --smoke
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-cert-check --certbot --systemd-timers
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-closeout-check --certbot --systemd-timers
 systemctl status nginx --no-pager
 systemctl list-timers 'certbot*'
 certbot certificates -d tg.1so.org

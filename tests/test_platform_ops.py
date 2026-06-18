@@ -14,6 +14,7 @@ from scripts.platform_ops import (
     evaluate_ledger_cutover_readiness,
     evaluate_model_drain_readiness,
     evaluate_model_key_manifest,
+    evaluate_platform_closeout_readiness,
     evaluate_platform_certificate_readiness,
     evaluate_platform_launch_readiness,
 )
@@ -491,6 +492,69 @@ class TestPlatformOpsScript:
         assert args.certbot is True
         assert args.systemd_timers is True
 
+    def test_parser_accepts_platform_closeout_check(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "platform-closeout-check",
+            "--url",
+            "https://tg.1so.org/platform/app",
+            "--timeout",
+            "2",
+            "--min-valid-days",
+            "45",
+            "--certbot",
+            "--systemd-timers",
+            "--ledger-limit",
+            "5000",
+            "--key-manifest-file",
+            "/etc/tgsellbot/model-test-keys.json",
+            "--worker-runner",
+            "/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
+            "--timer-name",
+            "tgsellbot-model-test-drain.timer",
+        ])
+
+        assert args.command == "platform-closeout-check"
+        assert args.url == "https://tg.1so.org/platform/app"
+        assert args.timeout == 2
+        assert args.min_valid_days == 45
+        assert args.certbot is True
+        assert args.systemd_timers is True
+        assert args.skip_ledger is False
+        assert args.ledger_limit == 5000
+        assert args.skip_model_drain is False
+        assert args.key_manifest_file == "/etc/tgsellbot/model-test-keys.json"
+        assert args.worker_runner == "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
+        assert args.timer_name == "tgsellbot-model-test-drain.timer"
+
+    def test_platform_closeout_distinguishes_public_green_from_release_blockers(self):
+        result = evaluate_platform_closeout_readiness(
+            health={"ok": True},
+            launch={"ok": True, "ready": {"current_launch_live": True}},
+            certificate={"ok": True},
+            auth_guard={"ok": True},
+            ledger={"ok": False, "allow_source_switch": False},
+            model_drain={"ok": False, "ready": {"manual_drain": False}},
+        )
+        public_failure = evaluate_platform_closeout_readiness(
+            health={"ok": False},
+            launch={"ok": True, "ready": {"current_launch_live": True}},
+            certificate={"ok": True},
+            auth_guard={"ok": True},
+        )
+
+        assert result["ok"] is False
+        assert result["ready"]["public_health"] is True
+        assert result["ready"]["public_launch"] is True
+        assert result["ready"]["certificate"] is True
+        assert result["ready"]["telegram_auth_guard"] is True
+        assert result["ready"]["ledger_source_switch"] is False
+        assert result["ready"]["model_lab_manual_drain"] is False
+        assert "ledger reads" in result["next_actions"][0]
+        assert "Model Lab batch drain" in result["next_actions"][1]
+        assert public_failure["ok"] is False
+        assert "public /health" in public_failure["next_actions"][0]
+
     def test_platform_cert_check_requires_valid_tls_and_renewal_wiring(self):
         good = evaluate_platform_certificate_readiness(
             {"ok": True, "url": "https://tg.1so.org/platform/app", "host": "tg.1so.org", "port": 443},
@@ -588,6 +652,125 @@ class TestPlatformOpsScript:
             "certbot": {"domain": "tg.1so.org", "timeout": 2},
             "timers": {"timeout": 2},
         }
+
+    async def test_platform_closeout_command_aggregates_read_only_gates(self, monkeypatch):
+        seen = {}
+
+        async def fake_settings(url):
+            seen["settings_url"] = url
+            return {
+                "platform_webapp_url": url,
+                "platform_api_enabled": "1",
+                "platform_menu_enabled": "1",
+            }
+
+        async def fake_reconcile(*, limit, offset):
+            seen["ledger"] = {"limit": limit, "offset": offset}
+            return {
+                "checked": 2,
+                "mismatch_count": 0,
+                "mismatches": [],
+                "limit": limit,
+                "offset": offset,
+            }
+
+        def fake_webapp(url, timeout):
+            seen["webapp"] = {"url": url, "timeout": timeout}
+            return {"ok": True, "status": 200, "contains_telegram_sdk": True}
+
+        def fake_health(url, timeout):
+            seen["health"] = {"url": url, "timeout": timeout}
+            return {"ok": True, "status": 200, "database": "ok"}
+
+        def fake_auth(url, timeout):
+            seen["auth"] = {"url": url, "timeout": timeout}
+            return {"ok": True, "status": 401, "code": "telegram_init_data_invalid"}
+
+        def fake_probe(host, port, timeout):
+            seen["probe"] = {"host": host, "port": port, "timeout": timeout}
+            return {
+                "ok": True,
+                "host": host,
+                "port": port,
+                "not_after": "2026-09-16T00:00:00+00:00",
+                "days_remaining": 89,
+                "subject_alt_names": [host],
+                "error": "",
+            }
+
+        def fake_certbot(domain, timeout):
+            seen["certbot"] = {"domain": domain, "timeout": timeout}
+            return {"ok": True, "domain": domain, "domain_found": True}
+
+        def fake_timers(timeout):
+            seen["cert_timers"] = {"timeout": timeout}
+            return {"ok": True, "timer_count": 1, "timers": ["certbot.timer"]}
+
+        def fake_runner(path):
+            seen["runner"] = path
+            return {"ok": True, "path": path}
+
+        def fake_manifest(path):
+            seen["manifest"] = path
+            return {"ok": True, "path": path, "manifest": {"ok": True, "key_count": 1}}
+
+        def fake_drain_timer(unit_name, timeout):
+            seen["drain_timer"] = {"unit": unit_name, "timeout": timeout}
+            return {
+                "ok": True,
+                "unit": unit_name,
+                "installed": True,
+                "enabled": False,
+                "active": False,
+            }
+
+        monkeypatch.setattr("scripts.platform_ops._platform_launch_settings", fake_settings)
+        monkeypatch.setattr("bot.database.methods.platform.reconcile_ledger_balances", fake_reconcile)
+        monkeypatch.setattr("scripts.platform_ops._smoke_platform_webapp", fake_webapp)
+        monkeypatch.setattr("scripts.platform_ops._smoke_platform_health", fake_health)
+        monkeypatch.setattr("scripts.platform_ops._smoke_telegram_auth_guard", fake_auth)
+        monkeypatch.setattr("scripts.platform_ops._probe_https_certificate", fake_probe)
+        monkeypatch.setattr("scripts.platform_ops._run_certbot_certificate_check", fake_certbot)
+        monkeypatch.setattr("scripts.platform_ops._run_certbot_timer_check", fake_timers)
+        monkeypatch.setattr("scripts.platform_ops._model_lab_runner_check", fake_runner)
+        monkeypatch.setattr("scripts.platform_ops._model_lab_manifest_check", fake_manifest)
+        monkeypatch.setattr("scripts.platform_ops._run_systemd_unit_state", fake_drain_timer)
+
+        result = await _run(SimpleNamespace(
+            command="platform-closeout-check",
+            url="https://tg.1so.org/platform/app",
+            timeout=2,
+            min_valid_days=30,
+            certbot=True,
+            systemd_timers=True,
+            skip_ledger=False,
+            ledger_limit=5000,
+            skip_model_drain=False,
+            key_manifest_file="/etc/tgsellbot/model-test-keys.json",
+            worker_runner="/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
+            timer_name="tgsellbot-model-test-drain.timer",
+        ))
+
+        assert result["ok"] is True
+        assert result["ready"] == {
+            "public_health": True,
+            "public_launch": True,
+            "certificate": True,
+            "telegram_auth_guard": True,
+            "ledger_source_switch": True,
+            "model_lab_manual_drain": True,
+        }
+        assert seen["settings_url"] == "https://tg.1so.org/platform/app"
+        assert seen["ledger"] == {"limit": 5000, "offset": 0}
+        assert seen["webapp"] == {"url": "https://tg.1so.org/platform/app", "timeout": 2}
+        assert seen["health"] == {"url": "https://tg.1so.org/platform/app", "timeout": 2}
+        assert seen["auth"] == {"url": "https://tg.1so.org/platform/app", "timeout": 2}
+        assert seen["probe"] == {"host": "tg.1so.org", "port": 443, "timeout": 2}
+        assert seen["certbot"] == {"domain": "tg.1so.org", "timeout": 2}
+        assert seen["cert_timers"] == {"timeout": 2}
+        assert seen["runner"] == "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
+        assert seen["manifest"] == "/etc/tgsellbot/model-test-keys.json"
+        assert seen["drain_timer"] == {"unit": "tgsellbot-model-test-drain.timer", "timeout": 2}
 
     def test_parse_now_normalizes_naive_datetime_to_utc(self):
         parsed = _parse_now("2026-06-17T00:00:00")
