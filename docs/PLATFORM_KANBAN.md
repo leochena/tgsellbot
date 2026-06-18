@@ -27,6 +27,7 @@ Model Lab, and platform operations layer.
 - Public Mini App HTTPS entry is live on the Virginia server.
   - Cloudflare DNS: `tg.1so.org A 47.253.251.141`, DNS-only.
   - Nginx reverse proxy: public `80/443` to `127.0.0.1:9090`.
+  - Source-controlled nginx rebuild assets live under `deploy/nginx/`.
   - Let's Encrypt certificate covers `tg.1so.org` and
     `47-253-251-141.sslip.io`; expiry `2026-09-16`.
   - Platform settings: `platform_webapp_url=https://tg.1so.org/platform/app`,
@@ -49,7 +50,8 @@ Model Lab, and platform operations layer.
      channel discovery, Model Lab, and contribution buttons open
      `https://tg.1so.org/platform/app` inside Telegram.
    - Keep the Cloudflare token rotated after DNS setup.
-   - Keep certificate renewal monitoring in the server closeout checklist.
+   - Keep certificate renewal monitoring in the server closeout checklist using
+     `certbot certificates -d tg.1so.org` and `systemctl list-timers certbot*`.
 
 2. Ledger migration rehearsal
    - Run `ledger-opening --dry-run`, `ledger-opening`, and `ledger-reconcile`
