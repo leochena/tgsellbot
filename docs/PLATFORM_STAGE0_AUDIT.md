@@ -80,6 +80,8 @@ This audit converts `tgsellbot_AI频道与模型验证平台升级开发计划�
   - optional Bot menu WebApp buttons when `platform_webapp_url` is configured,
   - ledger balance and entry query helpers,
   - idempotent opening ledger backfill and reconciliation,
+  - read-only ledger source-of-truth cutover gate with full-scan, mismatch,
+    rollback-plan, and correction-plan output,
   - invite qualification plus mature settlement after the freeze/7-day windows.
 
 ## Public Interface Slice Added
@@ -149,6 +151,10 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
   creates the previewed idempotent opening ledger entries.
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py ledger-reconcile --limit 1000 --offset 0`
   compares `users.balance` / `users.points_balance` with available ledger totals.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py ledger-cutover-check --limit 5000 --offset 0`
+  runs a read-only source-of-truth release gate. It allows a future switch only
+  after a full clean reconciliation scan and prints rollback/correction steps;
+  it does not change read paths.
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py invite-settle --limit 100`
   credits mature qualified invite rewards. Rewards remain pending until both the
   72-hour freeze and 7-day settlement window have elapsed.
@@ -178,7 +184,8 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 1. Ledger migration rehearsal
    - Run `ledger-opening --dry-run`, `ledger-opening`, then `ledger-reconcile` against a production-like database copy.
    - Preserve the dry-run preview, execution result, and mismatch report as migration evidence.
-   - Keep existing fields as read source until reconciliation passes.
+   - Keep existing fields as read source until reconciliation and
+     `ledger-cutover-check` pass in the release window.
 
 2. Invite maturity
    - Virginia production enablement is complete: pre-enable check found 0 mature unrewarded invite rewards, the manual settlement pass returned `settled=0` and `blocked=0`, and `tgsellbot-invite-settle.timer` is enabled and active.
@@ -388,4 +395,9 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 87 tests.
 - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
 - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 662 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 17 tests, including the read-only ledger cutover gate.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 89 tests.
+- `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 664 tests.
 - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.

@@ -323,7 +323,13 @@ cd /opt/tgsellbot
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-opening --limit 5000 --offset 0
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-opening --limit 5000 --offset 0
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-reconcile --limit 5000 --offset 0
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-cutover-check --limit 5000 --offset 0
 ```
+
+`ledger-cutover-check` is read-only. It allows a future source-of-truth switch
+only when reconciliation starts at offset `0`, checks fewer users than the
+configured limit, and reports `mismatch_count=0`. It also prints the rollback
+and correction plan that must be attached to the separate release decision.
 
 Latest Virginia rehearsal used a temporary database copy and preserved only redacted summaries:
 

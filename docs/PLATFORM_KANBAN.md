@@ -46,6 +46,10 @@ Model Lab, and platform operations layer.
   - `ledger-opening`: 23 opening entries created on the temporary database.
   - Repeat `ledger-opening`: 0 created, 23 skipped, proving idempotency.
   - `ledger-reconcile`: 18 users checked, 0 mismatches.
+- Ledger source-of-truth release checks now include a read-only
+  `ledger-cutover-check` command. It wraps reconciliation, refuses incomplete
+  scans or mismatches, and emits rollback/correction steps for the separate
+  release decision.
 - Channel `bot_admin` ownership claims now require live Telegram admin
   verification before approval.
   - The admin review API fetches the claim/channel context and calls Telegram
@@ -124,8 +128,8 @@ Model Lab, and platform operations layer.
 2. Ledger source-of-truth decision
    - Keep current `users.balance` and `users.points_balance` fields
      authoritative until a separate release explicitly switches read paths.
-   - If switching, repeat rehearsal immediately before release and define
-     rollback/correction steps.
+   - If switching, repeat rehearsal immediately before release and require
+     `ledger-cutover-check` to pass with the rollback/correction steps attached.
 
 3. Channel center P0 hardening
    - Extend reviewer-role gates only when new channel moderation endpoints are
@@ -158,8 +162,8 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 87 tests, including Bot WebApp menu markup validation in the launch gate.
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 662 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 89 tests, including Bot WebApp menu markup validation and the ledger cutover gate.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 664 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
 - Latest server runtime verification:

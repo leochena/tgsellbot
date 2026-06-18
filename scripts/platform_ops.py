@@ -21,6 +21,16 @@ TRUTHY = {"1", "true", "yes", "on"}
 MINI_APP_PATH = "/platform/app"
 AUDITED_COMMANDS = {"model-test-drain", "model-sample-retention"}
 EXPECTED_PLATFORM_MENU_TABS = ("channels", "model_lab", "contribute")
+LEDGER_CUTOVER_ROLLBACK_PLAN = [
+    "Keep users.balance and users.points_balance as the read source until a separate release explicitly switches reads.",
+    "If a future switch misbehaves, route reads back to users.balance/users.points_balance and leave ledger rows append-only.",
+    "Run ledger-reconcile after rollback; correct drift with audited compensating ledger entries, not destructive edits.",
+]
+LEDGER_CUTOVER_CORRECTION_PLAN = [
+    "Repeat ledger-opening --dry-run on a production-like copy and inspect the preview.",
+    "Run ledger-opening on the approved copy or release window, then repeat ledger-reconcile.",
+    "Investigate remaining mismatches per user/account and apply audited correction entries before any read-source switch.",
+]
 
 
 def _json_default(value: Any) -> str:
@@ -227,6 +237,53 @@ def _platform_launch_next_actions(
     return actions
 
 
+def evaluate_ledger_cutover_readiness(reconciliation: dict[str, Any]) -> dict[str, Any]:
+    checked = int(reconciliation.get("checked") or 0)
+    limit = int(reconciliation.get("limit") or 0)
+    offset = int(reconciliation.get("offset") or 0)
+    mismatch_count = int(reconciliation.get("mismatch_count") or 0)
+    full_scan = offset == 0 and limit > 0 and checked < limit
+    no_mismatches = mismatch_count == 0
+    allow_source_switch = full_scan and no_mismatches
+
+    next_actions: list[str] = []
+    if not full_scan:
+        next_actions.append(
+            "Run a full reconciliation from offset 0 with a limit above the active user count before any source switch."
+        )
+    if not no_mismatches:
+        next_actions.append(
+            "Resolve ledger mismatches and rerun ledger-cutover-check until mismatch_count is 0."
+        )
+    if allow_source_switch:
+        next_actions.append(
+            "Ledger totals reconcile for this full scan; a separate release decision can switch read paths with the rollback plan attached."
+        )
+
+    return {
+        "ok": allow_source_switch,
+        "allow_source_switch": allow_source_switch,
+        "current_read_source": "users.balance/users.points_balance",
+        "candidate_read_source": "ledger_entries available totals",
+        "checks": {
+            "full_reconciliation_scan": {
+                "ok": full_scan,
+                "checked": checked,
+                "limit": limit,
+                "offset": offset,
+            },
+            "no_mismatches": {
+                "ok": no_mismatches,
+                "mismatch_count": mismatch_count,
+            },
+        },
+        "reconciliation": reconciliation,
+        "next_actions": next_actions,
+        "rollback_plan": list(LEDGER_CUTOVER_ROLLBACK_PLAN),
+        "correction_plan": list(LEDGER_CUTOVER_CORRECTION_PLAN),
+    }
+
+
 def _smoke_platform_webapp(url: str, timeout: float) -> dict[str, Any]:
     if not url:
         return {"ok": False, "status": 0, "error": "URL is required."}
@@ -265,6 +322,11 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         from bot.database.methods.platform import reconcile_ledger_balances
 
         return await reconcile_ledger_balances(limit=args.limit, offset=args.offset)
+    if args.command == "ledger-cutover-check":
+        from bot.database.methods.platform import reconcile_ledger_balances
+
+        reconciliation = await reconcile_ledger_balances(limit=args.limit, offset=args.offset)
+        return evaluate_ledger_cutover_readiness(reconciliation)
     if args.command == "invite-settle":
         from bot.database.methods.group_invites import (
             get_group_invite_reward_tiers_text,
@@ -398,6 +460,10 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile = subparsers.add_parser("ledger-reconcile", help="Compare current user fields with available ledger totals.")
     reconcile.add_argument("--limit", type=int, default=1000)
     reconcile.add_argument("--offset", type=int, default=0)
+
+    cutover = subparsers.add_parser("ledger-cutover-check", help="Read-only gate for a future ledger source-of-truth switch.")
+    cutover.add_argument("--limit", type=int, default=5000)
+    cutover.add_argument("--offset", type=int, default=0)
 
     settle = subparsers.add_parser("invite-settle", help="Credit mature qualified group invite rewards.")
     settle.add_argument("--default-points", type=int, default=None, help="Default points; omit to read GROUP_INVITE_REWARD_POINTS.")

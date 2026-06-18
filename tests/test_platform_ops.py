@@ -5,7 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.platform_ops import _parse_now, _run_with_audit, build_parser, evaluate_platform_launch_readiness
+from scripts.platform_ops import (
+    _parse_now,
+    _run,
+    _run_with_audit,
+    build_parser,
+    evaluate_ledger_cutover_readiness,
+    evaluate_platform_launch_readiness,
+)
 from scripts.platform_worker import build_parser as build_worker_parser
 
 
@@ -15,12 +22,75 @@ class TestPlatformOpsScript:
 
         opening = parser.parse_args(["ledger-opening", "--limit", "50", "--offset", "10", "--dry-run"])
         reconcile = parser.parse_args(["ledger-reconcile"])
+        cutover = parser.parse_args(["ledger-cutover-check", "--limit", "5000"])
 
         assert opening.command == "ledger-opening"
         assert opening.limit == 50
         assert opening.offset == 10
         assert opening.dry_run is True
         assert reconcile.command == "ledger-reconcile"
+        assert cutover.command == "ledger-cutover-check"
+        assert cutover.limit == 5000
+        assert cutover.offset == 0
+
+    def test_ledger_cutover_check_requires_full_clean_reconciliation(self):
+        ready = evaluate_ledger_cutover_readiness({
+            "checked": 18,
+            "mismatch_count": 0,
+            "mismatches": [],
+            "limit": 5000,
+            "offset": 0,
+        })
+        paged = evaluate_ledger_cutover_readiness({
+            "checked": 5000,
+            "mismatch_count": 0,
+            "mismatches": [],
+            "limit": 5000,
+            "offset": 0,
+        })
+        mismatch = evaluate_ledger_cutover_readiness({
+            "checked": 18,
+            "mismatch_count": 1,
+            "mismatches": [{"user_id": 210001}],
+            "limit": 5000,
+            "offset": 0,
+        })
+
+        assert ready["ok"] is True
+        assert ready["allow_source_switch"] is True
+        assert ready["checks"]["full_reconciliation_scan"]["ok"] is True
+        assert ready["checks"]["no_mismatches"]["ok"] is True
+        assert ready["rollback_plan"]
+        assert "separate release decision" in ready["next_actions"][0]
+        assert paged["ok"] is False
+        assert paged["checks"]["full_reconciliation_scan"]["ok"] is False
+        assert "full reconciliation" in paged["next_actions"][0]
+        assert mismatch["ok"] is False
+        assert mismatch["checks"]["no_mismatches"]["ok"] is False
+        assert "Resolve ledger mismatches" in mismatch["next_actions"][0]
+
+    async def test_ledger_cutover_command_wraps_reconciliation(self, monkeypatch):
+        seen = {}
+
+        async def fake_reconcile(*, limit, offset):
+            seen["limit"] = limit
+            seen["offset"] = offset
+            return {
+                "checked": 2,
+                "mismatch_count": 0,
+                "mismatches": [],
+                "limit": limit,
+                "offset": offset,
+            }
+
+        monkeypatch.setattr("bot.database.methods.platform.reconcile_ledger_balances", fake_reconcile)
+
+        result = await _run(SimpleNamespace(command="ledger-cutover-check", limit=5000, offset=0))
+
+        assert seen == {"limit": 5000, "offset": 0}
+        assert result["ok"] is True
+        assert result["allow_source_switch"] is True
+        assert result["reconciliation"]["checked"] == 2
 
     def test_parser_accepts_invite_settlement(self):
         parser = build_parser()
