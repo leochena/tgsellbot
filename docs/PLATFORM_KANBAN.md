@@ -24,26 +24,32 @@ Model Lab, and platform operations layer.
 - `scripts/platform_ops.py platform-launch-check` validates the public Mini App
   URL and feature-flag state before `platform_api_enabled` or
   `platform_menu_enabled` are switched on.
-- Platform feature flags are default-off in production:
-  - `platform_api_enabled=0`
-  - `platform_menu_enabled=0`
-  - `platform_webapp_url=<empty>`
+- Public Mini App HTTPS entry is live on the Virginia server.
+  - Cloudflare DNS: `tg.1so.org A 47.253.251.141`, DNS-only.
+  - Nginx reverse proxy: public `80/443` to `127.0.0.1:9090`.
+  - Let's Encrypt certificate covers `tg.1so.org` and
+    `47-253-251-141.sslip.io`; expiry `2026-09-16`.
+  - Platform settings: `platform_webapp_url=https://tg.1so.org/platform/app`,
+    `platform_api_enabled=1`, `platform_menu_enabled=1`.
+  - Launch gate: `platform-launch-check --smoke` passed with
+    `current_launch_live=true`.
 
 ## In Progress
 
 - Mini App launch readiness
-  - Platform-only web runtime is deployed to the Virginia server.
-  - Bind the runtime behind HTTPS before enabling Telegram menu buttons.
-  - Keep platform feature flags off until public URL smoke tests pass.
+  - Platform-only web runtime is deployed and bound behind HTTPS.
+  - Telegram menu markup now emits WebApp URLs for `tg.1so.org`.
+  - Manual Telegram client `/start` smoke remains to verify the live Bot button
+    opens the Mini App inside Telegram.
 
 ## Next
 
 1. Mini App launch readiness
-   - Configure a public HTTPS URL and set `platform_webapp_url`.
-   - Run `scripts/platform_ops.py platform-launch-check --smoke` against the
-     public URL.
-   - Enable `platform_api_enabled` only after a smoke test through the public URL.
-   - Enable `platform_menu_enabled` after Bot menu entry smoke testing.
+   - Run a Telegram client `/start` smoke from the owner account and confirm the
+     channel discovery, Model Lab, and contribution buttons open
+     `https://tg.1so.org/platform/app` inside Telegram.
+   - Keep the Cloudflare token rotated after DNS setup.
+   - Keep certificate renewal monitoring in the server closeout checklist.
 
 2. Ledger migration rehearsal
    - Run `ledger-opening --dry-run`, `ledger-opening`, and `ledger-reconcile`
@@ -77,8 +83,6 @@ Model Lab, and platform operations layer.
 
 ## Blocked Or Needs External Setup
 
-- Public Mini App requires a HTTPS domain or reverse proxy in front of the
-  platform web runtime.
 - Model Lab production run path requires a separate isolated Worker deployment
   environment before accepting real user keys at scale.
 
@@ -90,6 +94,14 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 644 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 647 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
-  - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
+  - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- Latest server runtime verification:
+  - `https://tg.1so.org/platform/app` returned 200 and includes the Telegram
+    WebApp SDK.
+  - `https://tg.1so.org/health` returned `healthy` with database `ok`.
+  - Unauthenticated `https://tg.1so.org/platform/api/channels/discover`
+    returned 401 `telegram_init_data_invalid`.
+  - `scripts/platform_ops.py platform-launch-check --smoke` passed with
+    `current_launch_live=true`.
