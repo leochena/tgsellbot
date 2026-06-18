@@ -118,6 +118,12 @@ Model Lab, and platform operations layer.
   command that aggregates public health, Mini App launch smoke, certificate
   readiness, Telegram initData auth guard, ledger cutover, and Model Lab drain
   readiness in one JSON report.
+  - Code commit: `770c6c3ddded8fdd78350de7c5683b4acfbd19a0`.
+  - Server backup before deployment:
+    `/opt/tgsellbot_backups/20260619-062408-platform-closeout-check`.
+  - Production closeout run proved the public gates are green and the
+    remaining release-only gates stay closed until the ledger cutover and Model
+    Lab drain prerequisites are explicitly approved.
 - Model Lab report sharing now has Mini App and public report page controls for
   copying links, opening the system share sheet when available, and falling
   back to Telegram share URLs. Private reports still do not generate public
@@ -237,6 +243,13 @@ Model Lab, and platform operations layer.
     returned 401 `telegram_init_data_invalid`.
   - `scripts/platform_ops.py platform-launch-check --smoke` passed with
     `current_launch_live=true`.
+  - `scripts/platform_ops.py platform-closeout-check --certbot --systemd-timers`
+    returned `ok=false` by design while proving the public launch gates:
+    public health, public launch, TLS certificate, and Telegram auth guard all
+    passed. The remaining blockers are release gates: ledger cutover checked 18
+    users with 17 mismatches and `allow_source_switch=false`; Model Lab drain
+    runner passed, but `/etc/tgsellbot/model-test-keys.json` is still missing
+    and `tgsellbot-model-test-drain.timer` remains disabled/inactive.
   - The Model Lab isolated runner help smoke passed through sudo as
     `tgsellbot-worker`, and `.env` remained unreadable to that worker.
   - `scripts/platform_ops.py model-drain-readiness-check` is intentionally

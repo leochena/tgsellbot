@@ -204,6 +204,9 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
   runs the read-only production closeout gate for public health, Mini App
   launch smoke, TLS certificate, Telegram initData auth guard, ledger cutover,
   and Model Lab drain readiness.
+  Virginia production currently reports the public gates green and the overall
+  gate closed by the intentionally separate ledger cutover and Model Lab drain
+  approvals.
 
 ## Sprint Backlog
 
@@ -271,6 +274,14 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 - Virginia production `scripts/platform_ops.py platform-cert-check --certbot --systemd-timers`
   passed with certificate expiry `2026-09-16T16:45:44+00:00`, 89 days
   remaining, certbot domain `tg.1so.org`, and one renewal timer listed.
+- Virginia production deployed `770c6c3ddded8fdd78350de7c5683b4acfbd19a0`
+  with backup `/opt/tgsellbot_backups/20260619-062408-platform-closeout-check`;
+  `scripts/platform_ops.py platform-closeout-check --certbot --systemd-timers`
+  returned `ok=false` by design while public health, public launch, TLS
+  certificate, and Telegram auth guard all passed. The ledger release gate
+  checked 18 users with 17 mismatches and `allow_source_switch=false`; the
+  Model Lab isolated runner passed, but the server-local key manifest is still
+  missing and `tgsellbot-model-test-drain.timer` remains disabled/inactive.
 - Virginia production `scripts/platform_ops.py model-drain-readiness-check`
   returned `ok=false` by design: the isolated runner passed, the
   `tgsellbot-model-test-drain.timer` unit is installed but disabled/inactive,
