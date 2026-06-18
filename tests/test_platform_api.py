@@ -1562,6 +1562,11 @@ class TestPlatformAPI:
             query="feedback_type=complaint",
             authenticated=True,
         ))
+        needs_followup = await api_admin_relay_feedback(_request(
+            path="/platform/api/admin/relay-feedback",
+            query="feedback_type=complaint&followup_state=needs_followup",
+            authenticated=True,
+        ))
         review = await api_admin_relay_feedback_review(_request(
             method="POST",
             path=f"/platform/api/admin/relay-feedback/{complaint['id']}/review",
@@ -1587,6 +1592,16 @@ class TestPlatformAPI:
             query="feedback_type=complaint&outcome=provider_fixed",
             authenticated=True,
         ))
+        resolved_followup = await api_admin_relay_feedback(_request(
+            path="/platform/api/admin/relay-feedback",
+            query="feedback_type=complaint&followup_state=resolved",
+            authenticated=True,
+        ))
+        unresolved_followup = await api_admin_relay_feedback(_request(
+            path="/platform/api/admin/relay-feedback",
+            query="feedback_type=complaint&followup_state=unresolved",
+            authenticated=True,
+        ))
         assigned_filtered = await api_admin_relay_feedback(_request(
             path="/platform/api/admin/relay-feedback",
             query="feedback_type=complaint&assigned_to=240041&reviewed_by=240041&escalation=operator",
@@ -1607,7 +1622,10 @@ class TestPlatformAPI:
         assert complaint_rows[0]["feedback"]["id"] == complaint["id"]
         assert complaint_rows[0]["feedback"]["feedback_type"] == "complaint"
         assert complaint_rows[0]["feedback"]["text"] == "unexpected timeout during streaming"
+        assert complaint_rows[0]["feedback"]["followup_state"] == "needs_followup"
         assert complaint_rows[0]["provider"]["base_url"] == "https://complaint-queue-relay.example.com/v1"
+        assert needs_followup.status_code == 200
+        assert _json(needs_followup)["feedback"][0]["feedback"]["id"] == complaint["id"]
         assert review.status_code == 200
         reviewed_rows = _json(under_review)["feedback"]
         assert len(reviewed_rows) == 1
@@ -1619,12 +1637,17 @@ class TestPlatformAPI:
         assert reviewed_rows[0]["feedback"]["assigned_to"] == 240041
         assert reviewed_rows[0]["feedback"]["escalation"] == "operator"
         assert reviewed_rows[0]["feedback"]["outcome"] == "provider_fixed"
+        assert reviewed_rows[0]["feedback"]["followup_state"] == "resolved"
         assert reviewed_rows[0]["feedback"]["followup_notes"] == "provider published an incident follow-up"
         assert reviewed_rows[0]["feedback"]["resolved_by"] == 240041
         assert reviewed_rows[0]["feedback"]["resolved_at"]
         outcome_rows = _json(outcome_filtered)["feedback"]
         assert len(outcome_rows) == 1
         assert outcome_rows[0]["feedback"]["id"] == complaint["id"]
+        resolved_rows = _json(resolved_followup)["feedback"]
+        assert len(resolved_rows) == 1
+        assert resolved_rows[0]["feedback"]["id"] == complaint["id"]
+        assert _json(unresolved_followup)["feedback"] == []
         assigned_rows = _json(assigned_filtered)["feedback"]
         assert len(assigned_rows) == 1
         assert assigned_rows[0]["feedback"]["id"] == complaint["id"]
@@ -2281,9 +2304,17 @@ class TestPlatformAPI:
         assert "id or unassigned" in html
         assert "id or unreviewed" in html
         assert "reviewFilters" in html
+        assert "followupFilters" in html
+        assert "Follow-up" in html
+        assert "needs_followup" in html
+        assert "in_followup" in html
+        assert "Acknowledge" in html
+        assert "Monitor" in html
+        assert "Resolve" in html
         assert '["assigned_to", "assigned_to"]' in html
         assert '["reviewed_by", "reviewed_by"]' in html
         assert '["escalation", "escalation"]' in html
+        assert '["followup_state", "followup_state"]' in html
         assert "urgent" in html
         assert "/platform/api/admin/dashboard" in html
         assert "/platform/api/admin/owners/dashboard" in html

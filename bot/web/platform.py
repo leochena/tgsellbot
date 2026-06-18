@@ -645,6 +645,7 @@ async def api_admin_relay_feedback_impl(request: Request):
         assigned_to=request.query_params.get("assigned_to", ""),
         reviewed_by=request.query_params.get("reviewed_by", ""),
         escalation=request.query_params.get("escalation", ""),
+        followup_state=request.query_params.get("followup_state", ""),
         limit=int(request.query_params.get("limit", "50")),
         offset=int(request.query_params.get("offset", "0")),
     )
@@ -1653,7 +1654,7 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
             statusCell(feedback.status),
             textCell([feedback.feedback_type, feedback.rating ? "rating " + feedback.rating : "", feedback.text].filter(Boolean).join(" / ")),
             assignmentCell(noteId, feedback.assigned_to, feedback.escalation, feedback.reviewed_by, feedback.reviewed_at),
-            outcomeCell(noteId, feedback.outcome, feedback.followup_notes, feedback.resolved_by, feedback.resolved_at),
+            outcomeCell(noteId, feedback.outcome, feedback.followup_notes, feedback.resolved_by, feedback.resolved_at, feedback.followup_state),
             noteCell(noteId),
             actionsCell([
               actionButton("Approve", "primary", () => reviewStatus(`/platform/api/admin/relay-feedback/${feedback.id}/review`, "approved", noteId, { includeOutcome: true })),
@@ -1671,7 +1672,8 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
         itemKey: "feedback",
         statuses: ["", "submitted", "under_review", "approved", "rejected", "risk_blocked"],
         reviewFilters: true,
-        columns: ["Provider", "Status", "Complaint", "Assignment", "Outcome", "Note", "Actions"],
+        followupFilters: true,
+        columns: ["Provider", "Status", "Complaint", "Assignment", "Follow-up", "Note", "Actions"],
         render(item) {
           const feedback = item.feedback || {};
           const provider = item.provider || {};
@@ -1681,9 +1683,12 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
             statusCell(feedback.status),
             textCell(feedback.text || "-"),
             assignmentCell(noteId, feedback.assigned_to, feedback.escalation, feedback.reviewed_by, feedback.reviewed_at),
-            outcomeCell(noteId, feedback.outcome, feedback.followup_notes, feedback.resolved_by, feedback.resolved_at),
+            outcomeCell(noteId, feedback.outcome, feedback.followup_notes, feedback.resolved_by, feedback.resolved_at, feedback.followup_state),
             noteCell(noteId),
             actionsCell([
+              actionButton("Acknowledge", "", () => followupReview(feedback.id, noteId, "under_review", "acknowledged")),
+              actionButton("Monitor", "", () => followupReview(feedback.id, noteId, "under_review", "monitoring")),
+              actionButton("Resolve", "primary", () => followupReview(feedback.id, noteId, "approved", "resolved")),
               actionButton("Approve", "primary", () => reviewStatus(`/platform/api/admin/relay-feedback/${feedback.id}/review`, "approved", noteId, { includeOutcome: true })),
               actionButton("Review", "", () => reviewStatus(`/platform/api/admin/relay-feedback/${feedback.id}/review`, "under_review", noteId, { includeOutcome: true })),
               actionButton("Reject", "danger", () => reviewStatus(`/platform/api/admin/relay-feedback/${feedback.id}/review`, "rejected", noteId, { includeOutcome: true })),
@@ -1810,14 +1815,15 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
       </div>`;
     }
 
-    function outcomeCell(id, outcome, followupNotes, resolvedBy, resolvedAt) {
+    function outcomeCell(id, outcome, followupNotes, resolvedBy, resolvedAt, followupState) {
       const outcomes = ["none", "acknowledged", "resolved", "provider_fixed", "user_error", "duplicate", "invalid", "escalated", "monitoring"];
+      const state = followupState || (resolvedBy ? "resolved" : "unresolved");
       return `<div class="assignment">
         <select id="${h(id)}_outcome">
           ${outcomes.map(item => `<option value="${item}" ${item === (outcome || "none") ? "selected" : ""}>${item}</option>`).join("")}
         </select>
         <textarea id="${h(id)}_followup" placeholder="Follow-up notes">${h(followupNotes || "")}</textarea>
-        <div class="row-meta">${resolvedBy ? `resolved by ${h(resolvedBy)} ${h(resolvedAt || "")}` : "unresolved"}</div>
+        <div class="row-meta">${h(state)}${resolvedBy ? ` / updated by ${h(resolvedBy)} ${h(resolvedAt || "")}` : ""}</div>
       </div>`;
     }
 
@@ -1875,11 +1881,17 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
             ${["", "none", "watch", "operator", "risk", "urgent"].map(level => `<option value="${h(level)}">${h(level || "all")}</option>`).join("")}
           </select>
         </label>` : "";
+      const followupFilters = queue.followupFilters ? `
+        <label>Follow-up
+          <select id="${queue.id}_followup_state">
+            ${["", "needs_followup", "in_followup", "resolved", "unresolved"].map(state => `<option value="${h(state)}">${h(state || "all")}</option>`).join("")}
+          </select>
+        </label>` : "";
       return `<label>Status
         <select id="${queue.id}_status">
           ${queue.statuses.map(status => `<option value="${h(status)}">${h(status || "all")}</option>`).join("")}
         </select>
-      </label>${reviewFilters}`;
+      </label>${reviewFilters}${followupFilters}`;
     }
 
     function renderShell() {
@@ -1951,6 +1963,14 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
               if (value) url.searchParams.set(param, value);
             });
           }
+          if (queue.followupFilters) {
+            [
+              ["followup_state", "followup_state"],
+            ].forEach(([param, field]) => {
+              const value = document.getElementById(queue.id + "_" + field)?.value.trim() || "";
+              if (value) url.searchParams.set(param, value);
+            });
+          }
         }
       }
       const state = document.getElementById(queue.id + "_state");
@@ -2004,6 +2024,12 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
       } catch (error) {
         alert(error.message || "Review failed");
       }
+    }
+
+    async function followupReview(feedbackId, noteId, status, outcome) {
+      const outcomeSelect = document.getElementById(noteId + "_outcome");
+      if (outcomeSelect) outcomeSelect.value = outcome;
+      await reviewStatus(`/platform/api/admin/relay-feedback/${feedbackId}/review`, status, noteId, { includeOutcome: true });
     }
 
     async function reviewClaim(url, approved, noteId) {

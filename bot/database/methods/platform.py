@@ -77,6 +77,10 @@ RELAY_FEEDBACK_OUTCOMES = {
     "escalated",
     "monitoring",
 }
+RELAY_FEEDBACK_TERMINAL_OUTCOMES = {"resolved", "provider_fixed", "user_error", "duplicate", "invalid"}
+RELAY_FEEDBACK_ACTIVE_OUTCOMES = {"acknowledged", "escalated", "monitoring"}
+RELAY_FEEDBACK_FOLLOWUP_STATES = {"needs_followup", "in_followup", "resolved", "unresolved"}
+RELAY_FEEDBACK_OPEN_STATUSES = {"submitted", "under_review"}
 RELAY_CLAIM_WELL_KNOWN_PATH = "/.well-known/tgsellbot-relay-claim.txt"
 RELAY_CLAIM_FETCH_TIMEOUT_SECONDS = 5
 RELAY_CLAIM_FETCH_MAX_BYTES = 4096
@@ -1497,6 +1501,7 @@ async def list_relay_feedback(
         assigned_to: int | str | None = None,
         reviewed_by: int | str | None = None,
         escalation: str = "",
+        followup_state: str = "",
         limit: int = 50,
         offset: int = 0,
 ) -> dict[str, Any]:
@@ -1508,8 +1513,11 @@ async def list_relay_feedback(
     assigned_filter = str(assigned_to or "").strip().lower()
     reviewed_filter = str(reviewed_by or "").strip().lower()
     escalation = str(escalation or "").strip().lower()
+    followup_state = str(followup_state or "").strip().lower()
     if escalation and escalation not in REVIEW_ESCALATIONS:
         raise ValueError("invalid escalation")
+    if followup_state and followup_state not in RELAY_FEEDBACK_FOLLOWUP_STATES:
+        raise ValueError("invalid followup_state")
     async with Database().session() as s:
         stmt = (
             select(RelayFeedback, RelayProviders)
@@ -1531,6 +1539,8 @@ async def list_relay_feedback(
             stmt = stmt.where(RelayFeedback.reviewed_by == _optional_positive_int(reviewed_filter))
         if escalation:
             stmt = stmt.where(RelayFeedback.escalation == escalation)
+        if followup_state:
+            stmt = _filter_relay_feedback_followup_state(stmt, followup_state)
         rows = (await s.execute(
             stmt.order_by(RelayFeedback.created_at.asc(), RelayFeedback.id.asc())
             .offset(offset)
@@ -3493,11 +3503,65 @@ def _relay_feedback_to_dict(feedback: RelayFeedback) -> dict[str, Any]:
         "assigned_to": feedback.assigned_to,
         "escalation": feedback.escalation,
         "outcome": feedback.outcome,
+        "followup_state": _relay_feedback_followup_state(feedback),
         "followup_notes": feedback.followup_notes,
         "resolved_by": feedback.resolved_by,
         "resolved_at": feedback.resolved_at.isoformat() if feedback.resolved_at else "",
         "created_at": feedback.created_at.isoformat() if feedback.created_at else "",
     }
+
+
+def _filter_relay_feedback_followup_state(stmt, followup_state: str):
+    unresolved_filter = ~RelayFeedback.outcome.in_(RELAY_FEEDBACK_TERMINAL_OUTCOMES)
+    active_filter = or_(
+        RelayFeedback.outcome.in_(RELAY_FEEDBACK_ACTIVE_OUTCOMES),
+        RelayFeedback.followup_notes != "",
+        RelayFeedback.assigned_to.is_not(None),
+        RelayFeedback.escalation != "none",
+        RelayFeedback.status == "under_review",
+    )
+    if followup_state == "resolved":
+        return stmt.where(RelayFeedback.outcome.in_(RELAY_FEEDBACK_TERMINAL_OUTCOMES))
+    if followup_state == "unresolved":
+        return stmt.where(unresolved_filter)
+    if followup_state == "in_followup":
+        return stmt.where(
+            RelayFeedback.feedback_type == "complaint",
+            unresolved_filter,
+            active_filter,
+        )
+    return stmt.where(
+        RelayFeedback.feedback_type == "complaint",
+        RelayFeedback.outcome == "none",
+        RelayFeedback.followup_notes == "",
+        RelayFeedback.assigned_to.is_(None),
+        RelayFeedback.escalation == "none",
+        RelayFeedback.status.in_(RELAY_FEEDBACK_OPEN_STATUSES),
+    )
+
+
+def _relay_feedback_followup_state(feedback: RelayFeedback) -> str:
+    outcome = str(feedback.outcome or "none").lower()
+    if outcome in RELAY_FEEDBACK_TERMINAL_OUTCOMES:
+        return "resolved"
+    if feedback.feedback_type == "complaint" and (
+        outcome in RELAY_FEEDBACK_ACTIVE_OUTCOMES
+        or bool(feedback.followup_notes)
+        or feedback.assigned_to is not None
+        or str(feedback.escalation or "none").lower() != "none"
+        or str(feedback.status or "").lower() == "under_review"
+    ):
+        return "in_followup"
+    if (
+        feedback.feedback_type == "complaint"
+        and outcome == "none"
+        and not feedback.followup_notes
+        and feedback.assigned_to is None
+        and str(feedback.escalation or "none").lower() == "none"
+        and str(feedback.status or "").lower() in RELAY_FEEDBACK_OPEN_STATUSES
+    ):
+        return "needs_followup"
+    return "unresolved"
 
 
 def _relay_feedback_public_to_dict(feedback: RelayFeedback) -> dict[str, Any]:

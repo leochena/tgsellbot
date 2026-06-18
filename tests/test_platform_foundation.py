@@ -626,6 +626,7 @@ class TestRelayAndModelLabFoundation:
             feedback_type="complaint",
             text="timeout on stream",
         )
+        pending_queue = await list_relay_feedback(feedback_type="complaint", followup_state="needs_followup")
 
         ok = await review_relay_feedback(
             feedback["id"],
@@ -643,21 +644,30 @@ class TestRelayAndModelLabFoundation:
             assigned_to=230022,
             reviewed_by=230022,
             escalation="operator",
+            followup_state="resolved",
         )
+        unresolved_queue = await list_relay_feedback(feedback_type="complaint", followup_state="unresolved")
         unassigned_queue = await list_relay_feedback(feedback_type="complaint", assigned_to="unassigned")
         detail = await get_relay_provider_detail(relay["id"])
 
+        assert pending_queue["feedback"][0]["feedback"]["id"] == feedback["id"]
+        assert pending_queue["feedback"][0]["feedback"]["followup_state"] == "needs_followup"
         assert ok is True
         row = queue["feedback"][0]["feedback"]
         assert row["id"] == feedback["id"]
         assert row["outcome"] == "provider_fixed"
+        assert row["followup_state"] == "resolved"
         assert row["followup_notes"] == "provider deployed timeout fix"
         assert row["resolved_by"] == 230022
         assert row["resolved_at"]
+        assert unresolved_queue["feedback"] == []
         assert unassigned_queue["feedback"] == []
         assert detail["feedback"]["recent"][0]["text"] == "timeout on stream"
         assert "outcome" not in detail["feedback"]["recent"][0]
         assert "followup_notes" not in detail["feedback"]["recent"][0]
+
+        with pytest.raises(ValueError):
+            await list_relay_feedback(followup_state="unknown")
 
         with pytest.raises(ValueError):
             await review_relay_feedback(feedback["id"], reviewer_id=230022, status="approved", outcome="freeform")

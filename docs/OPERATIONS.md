@@ -90,6 +90,8 @@ Channel and relay review APIs can accept signed Telegram Mini App `initData` fro
 `RISK_OPERATOR` or higher. Broader admin dashboards and audit-log APIs remain session-gated.
 The Platform Review workspace can filter channel reports, relay feedback, and relay complaints by `assigned_to`,
 `reviewed_by`, and `escalation`; use `unassigned` or `unreviewed` for backlog triage.
+Relay complaint queues also support `followup_state` values `needs_followup`, `in_followup`, `resolved`, and
+`unresolved`, plus Acknowledge, Monitor, and Resolve actions that update the existing review API path.
 Channel admin detail includes an internal moderation history timeline. Public channel detail intentionally omits this
 timeline and report-review audit notes.
 

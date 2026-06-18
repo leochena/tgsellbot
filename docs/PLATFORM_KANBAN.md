@@ -76,6 +76,9 @@ Model Lab, and platform operations layer.
   or signed Telegram Mini App `initData` from users with `REVIEWER`,
   `RISK_OPERATOR`, `OPERATOR`, `ADMIN`, or `OWNER` roles. Risk-blocking and
   urgent/risk escalation actions require `RISK_OPERATOR` or higher.
+- Relay complaint queues now expose follow-up states for `needs_followup`,
+  `in_followup`, `resolved`, and `unresolved`, with admin API filters plus
+  quick Acknowledge, Monitor, and Resolve actions in the review workspace.
 
 ## In Progress
 
@@ -108,7 +111,8 @@ Model Lab, and platform operations layer.
      are introduced.
 
 4. Relay directory P0 hardening
-   - Improve complaint follow-up workflows.
+   - Keep complaint follow-up state rules aligned when new outcomes are
+     introduced.
    - Expand public owner-managed profiles after verification workflows mature.
 
 5. Model Lab P0 production wiring
