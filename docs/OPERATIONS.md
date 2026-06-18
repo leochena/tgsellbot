@@ -232,6 +232,31 @@ or on Docker:
 docker compose run --rm bot alembic upgrade head
 ```
 
+## Ledger Opening Rehearsal
+
+Opening ledger backfill must be rehearsed on a production-like database copy before any source-of-truth switch. Do not
+run the write command directly against production unless a separate release plan explicitly approves it.
+
+Operator sequence for a restored copy:
+
+```bash
+cd /opt/tgsellbot
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-opening --dry-run --limit 5000 --offset 0
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-opening --limit 5000 --offset 0
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-opening --limit 5000 --offset 0
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py ledger-reconcile --limit 5000 --offset 0
+```
+
+Latest Virginia rehearsal used a temporary database copy and preserved only redacted summaries:
+
+- Evidence: `/opt/tgsellbot_backups/20260619-020157-ledger-rehearsal`
+- Users checked: 18
+- Dry-run opening entries: 23 total, 17 points and 6 balance
+- Execution: 23 created
+- Repeat execution: 0 created, 23 skipped
+- Reconcile: 0 mismatches
+- Temporary database and source dump were removed after the rehearsal.
+
 ## Check-In And Lottery
 
 The bot includes linked engagement modules:

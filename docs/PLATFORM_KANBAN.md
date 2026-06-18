@@ -34,6 +34,18 @@ Model Lab, and platform operations layer.
     `platform_api_enabled=1`, `platform_menu_enabled=1`.
   - Launch gate: `platform-launch-check --smoke` passed with
     `current_launch_live=true`.
+- Ledger migration rehearsal completed on a temporary production-copy database.
+  - Evidence directory:
+    `/opt/tgsellbot_backups/20260619-020157-ledger-rehearsal`.
+  - Temporary database:
+    `tgsellbot_ledger_rehearsal_20260619_020157`, dropped after rehearsal.
+  - Source dump was removed after restore; preserved evidence is redacted
+    summary JSON only.
+  - `ledger-opening --dry-run`: 18 users checked, 23 opening entries would be
+    created: 17 points, 6 balance.
+  - `ledger-opening`: 23 opening entries created on the temporary database.
+  - Repeat `ledger-opening`: 0 created, 23 skipped, proving idempotency.
+  - `ledger-reconcile`: 18 users checked, 0 mismatches.
 
 ## In Progress
 
@@ -53,11 +65,11 @@ Model Lab, and platform operations layer.
    - Keep certificate renewal monitoring in the server closeout checklist using
      `certbot certificates -d tg.1so.org` and `systemctl list-timers certbot*`.
 
-2. Ledger migration rehearsal
-   - Run `ledger-opening --dry-run`, `ledger-opening`, and `ledger-reconcile`
-     against a production-like database copy.
-   - Preserve preview, execution, and mismatch evidence.
-   - Keep current balance/points fields authoritative until reconciliation passes.
+2. Ledger source-of-truth decision
+   - Keep current `users.balance` and `users.points_balance` fields
+     authoritative until a separate release explicitly switches read paths.
+   - If switching, repeat rehearsal immediately before release and define
+     rollback/correction steps.
 
 3. Invite maturity
    - Run one manual `invite-settle` pass after checking mature reward counts.
