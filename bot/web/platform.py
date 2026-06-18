@@ -2724,6 +2724,23 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       </header>
       <div class="body">
         <div id="ledgerState" class="state"></div>
+        <div class="filters">
+          <label>账户
+            <select id="ledgerAccountType">
+              <option value="">全部</option>
+              <option value="balance">余额</option>
+              <option value="points">积分</option>
+            </select>
+          </label>
+          <div class="actions">
+            <button id="filterLedger" type="button">筛选账本</button>
+          </div>
+        </div>
+        <div class="pager">
+          <button id="ledgerPrev" type="button">上一页</button>
+          <span id="ledgerPageState" class="state"></span>
+          <button id="ledgerNext" type="button">下一页</button>
+        </div>
         <div id="ledgerList" class="list"></div>
       </div>
     </section>
@@ -2743,6 +2760,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     const channelState = { offset: 0, limit: 10, hasMore: false, activeId: null, detail: null, claimNotice: null };
     const relayState = { offset: 0, limit: 10, hasMore: false, activeId: null, detail: null, claimNotice: null, feedbackMode: "rating", feedbackNotice: null };
     const ownerDashboardState = { dashboard: null };
+    const ledgerState = { offset: 0, limit: 20, hasMore: false, total: 0 };
     const modelLabState = {
       jobOffset: 0,
       jobLimit: 10,
@@ -2796,6 +2814,24 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       }
     });
     document.getElementById("loadLedger").addEventListener("click", loadLedger);
+    document.getElementById("filterLedger").addEventListener("click", () => {
+      ledgerState.offset = 0;
+      loadLedger();
+    });
+    document.getElementById("ledgerAccountType").addEventListener("change", () => {
+      ledgerState.offset = 0;
+      loadLedger();
+    });
+    document.getElementById("ledgerPrev").addEventListener("click", () => {
+      ledgerState.offset = Math.max(0, ledgerState.offset - ledgerState.limit);
+      loadLedger();
+    });
+    document.getElementById("ledgerNext").addEventListener("click", () => {
+      if (ledgerState.hasMore) {
+        ledgerState.offset += ledgerState.limit;
+        loadLedger();
+      }
+    });
     document.getElementById("channelForm").addEventListener("submit", event => submitForm(event, "/platform/api/channels/submissions", "channelSubmitState", () => {
       event.target.reset();
       loadChannels();
@@ -3940,26 +3976,44 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       if (!currentUserId) {
         setState("ledgerState", "Telegram user is required.", "error");
         document.getElementById("ledgerList").innerHTML = renderTelegramRequired();
+        document.getElementById("ledgerPageState").textContent = "";
+        document.getElementById("ledgerPrev").disabled = true;
+        document.getElementById("ledgerNext").disabled = true;
         return;
       }
+      const accountType = document.getElementById("ledgerAccountType").value.trim();
       setState("ledgerState", "Loading");
       try {
-        const payload = await apiFetch(`/platform/api/users/${currentUserId}/ledger?limit=20`);
+        const url = new URL(`/platform/api/users/${currentUserId}/ledger`, window.location.origin);
+        if (accountType) url.searchParams.set("account_type", accountType);
+        url.searchParams.set("limit", String(ledgerState.limit));
+        url.searchParams.set("offset", String(ledgerState.offset));
+        const payload = await apiFetch(url);
         const ledger = payload.ledger || {};
         const balances = ledger.balances || {};
         const rows = ledger.entries || [];
+        ledgerState.total = Number(ledger.total || rows.length || 0);
+        ledgerState.hasMore = Boolean(ledger.has_more);
         document.getElementById("ledgerList").innerHTML = (
           `<article class="item">
             <div class="item-title">Balance ${h(balances.balance || "0.00")} / Points ${h(balances.points || "0.00")}</div>
+            <div class="item-meta">当前筛选：${h(accountType || "全部账户")}</div>
           </article>` +
           (rows.length ? rows.map(entry => (
             `<article class="item">
-              <div class="item-title">${h(entry.entry_type)} <span class="badge">${h(entry.account_type)}</span></div>
+              <div class="item-title">${h(entry.entry_type)} <span class="badge">${h(entry.account_type)}</span> <span class="badge">#${h(entry.id)}</span></div>
               <div class="item-meta">${h(entry.amount)} / ${h(entry.status)} / ${h(entry.created_at)}</div>
+              <div class="item-meta">${h(entry.reference_type || "-")} ${h(entry.reference_id || "")}</div>
             </article>`
           )).join("") : renderEmpty("暂无账本条目", "当前账户还没有平台账本记录。"))
         );
-        setState("ledgerState", `${rows.length} entries`, "ok");
+        const page = Math.floor(ledgerState.offset / ledgerState.limit) + 1;
+        const start = ledgerState.total ? ledgerState.offset + 1 : 0;
+        const end = Math.min(ledgerState.offset + rows.length, ledgerState.total || rows.length);
+        document.getElementById("ledgerPageState").textContent = ledgerState.total ? `第 ${page} 页 · ${start}-${end} / ${ledgerState.total}` : `第 ${page} 页`;
+        document.getElementById("ledgerPrev").disabled = ledgerState.offset <= 0;
+        document.getElementById("ledgerNext").disabled = !ledgerState.hasMore;
+        setState("ledgerState", `${rows.length} entries`, rows.length ? "ok" : "");
       } catch (error) {
         setState("ledgerState", error.message || "Load failed", "error");
       }

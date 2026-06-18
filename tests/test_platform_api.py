@@ -171,6 +171,20 @@ class TestPlatformAPI:
             9,
             idempotency_key="api-ledger-240002-points",
         )
+        await create_ledger_entry(
+            240002,
+            "points",
+            "group_invite_reward",
+            3,
+            idempotency_key="api-ledger-240002-points-reward",
+        )
+        await create_ledger_entry(
+            240002,
+            "balance",
+            "opening_balance",
+            5,
+            idempotency_key="api-ledger-240002-balance",
+        )
 
         channel_request = _request(
             method="POST",
@@ -189,7 +203,14 @@ class TestPlatformAPI:
         ledger_response = await api_ledger(_request(
             path="/platform/api/users/240002/ledger",
             path_params={"user_id": 240002},
-            query="account_type=points",
+            query="account_type=points&limit=1",
+            authenticated=False,
+            init_data=make_init_data(240002, token="test_token"),
+        ))
+        ledger_page_two = await api_ledger(_request(
+            path="/platform/api/users/240002/ledger",
+            path_params={"user_id": 240002},
+            query="account_type=points&limit=1&offset=1",
             authenticated=False,
             init_data=make_init_data(240002, token="test_token"),
         ))
@@ -204,7 +225,15 @@ class TestPlatformAPI:
         assert channel_response.status_code == 201
         assert _json(channel_response)["result"]["channel"]["username"] == "api_channel"
         assert ledger_response.status_code == 200
-        assert _json(ledger_response)["ledger"]["balances"]["points"] == "9.00"
+        assert _json(ledger_response)["ledger"]["balances"]["points"] == "12.00"
+        assert _json(ledger_response)["ledger"]["balances"]["balance"] == "5.00"
+        assert _json(ledger_response)["ledger"]["total"] == 2
+        assert _json(ledger_response)["ledger"]["has_more"] is True
+        assert len(_json(ledger_response)["ledger"]["entries"]) == 1
+        assert ledger_page_two.status_code == 200
+        assert _json(ledger_page_two)["ledger"]["offset"] == 1
+        assert _json(ledger_page_two)["ledger"]["has_more"] is False
+        assert len(_json(ledger_page_two)["ledger"]["entries"]) == 1
         assert forbidden_ledger.status_code == 403
         assert _json(forbidden_ledger)["code"] == "forbidden"
 
@@ -2432,6 +2461,14 @@ class TestPlatformAPI:
         assert "刷新任务" in html
         assert "刷新报告" in html
         assert "/platform/api/users/" in html
+        assert "ledgerAccountType" in html
+        assert "filterLedger" in html
+        assert "ledgerPrev" in html
+        assert "ledgerNext" in html
+        assert "ledgerPageState" in html
+        assert "account_type" in html
+        assert "ledgerState.hasMore" in html
+        assert "当前筛选" in html
         assert "channelDetail" in html
         assert "relayDetail" in html
         assert "data-detail" in html

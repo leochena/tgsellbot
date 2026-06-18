@@ -423,6 +423,9 @@ async def list_ledger_entries(
         filters = [LedgerEntries.user_id == int(user_id)]
         if account_type:
             filters.append(LedgerEntries.account_type == account_type)
+        total = (await s.execute(
+            select(func.count()).select_from(LedgerEntries).where(*filters)
+        )).scalar_one()
         rows = (await s.execute(
             select(LedgerEntries)
             .where(*filters)
@@ -439,6 +442,8 @@ async def list_ledger_entries(
             "points": str(points_total),
         },
         "entries": [_ledger_to_dict(row) for row in rows],
+        "total": int(total or 0),
+        "has_more": offset + len(rows) < int(total or 0),
         "limit": limit,
         "offset": offset,
     }
