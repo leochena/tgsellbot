@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 
@@ -20,6 +20,7 @@ load_dotenv(ROOT / ".env", encoding="utf-8")
 TRUTHY = {"1", "true", "yes", "on"}
 MINI_APP_PATH = "/platform/app"
 AUDITED_COMMANDS = {"model-test-drain", "model-sample-retention"}
+EXPECTED_PLATFORM_MENU_TABS = ("channels", "model_lab", "contribute")
 
 
 def _json_default(value: Any) -> str:
@@ -101,22 +102,25 @@ def evaluate_platform_launch_readiness(
         "expected": MINI_APP_PATH,
         "actual": path or "",
     }
+    menu_markup = _platform_menu_markup_check(normalized_url or raw_url)
+    checks["bot_menu_webapp_markup"] = menu_markup
     if smoke is not None:
         checks["platform_webapp_http_smoke"] = smoke
 
     smoke_ok = True if smoke is None else bool(smoke.get("ok"))
     public_entry_ready = bool(raw_url and url_ok and path_ok and smoke_ok)
+    menu_markup_ready = bool(menu_markup.get("ok"))
     checks["platform_api_enabled"] = {"ok": api_enabled, "value": settings.get("platform_api_enabled", "")}
     checks["platform_menu_enabled"] = {"ok": menu_enabled, "value": settings.get("platform_menu_enabled", "")}
 
     return {
-        "ok": public_entry_ready and (not menu_enabled or api_enabled),
+        "ok": public_entry_ready and (not menu_enabled or (api_enabled and menu_markup_ready)),
         "checks": checks,
         "ready": {
             "public_entry": public_entry_ready,
             "can_enable_api": public_entry_ready,
-            "can_enable_menu": public_entry_ready and api_enabled,
-            "current_launch_live": public_entry_ready and api_enabled and menu_enabled,
+            "can_enable_menu": public_entry_ready and api_enabled and menu_markup_ready,
+            "current_launch_live": public_entry_ready and api_enabled and menu_enabled and menu_markup_ready,
         },
         "current": {
             "platform_api_enabled": api_enabled,
@@ -129,7 +133,67 @@ def evaluate_platform_launch_readiness(
             raw_url=raw_url,
             path_ok=path_ok,
             smoke=smoke,
+            menu_markup_ready=menu_markup_ready,
         ),
+    }
+
+
+def _platform_menu_markup_check(platform_webapp_url: str) -> dict[str, Any]:
+    if not platform_webapp_url:
+        return {
+            "ok": False,
+            "expected_tabs": list(EXPECTED_PLATFORM_MENU_TABS),
+            "tabs": [],
+            "web_app_urls": [],
+            "fallback_callbacks": [],
+            "error": "platform_webapp_url is required.",
+        }
+    try:
+        from bot.keyboards.inline import main_menu
+
+        markup = main_menu(role=1, platform_enabled=True, platform_webapp_url=platform_webapp_url)
+        web_app_urls: list[str] = []
+        fallback_callbacks: list[str] = []
+        for row in markup.inline_keyboard:
+            for button in row:
+                web_app = getattr(button, "web_app", None)
+                if web_app and getattr(web_app, "url", ""):
+                    web_app_urls.append(str(web_app.url))
+                callback_data = getattr(button, "callback_data", None)
+                if callback_data in {"platform_channels", "platform_model_lab", "platform_contribute"}:
+                    fallback_callbacks.append(str(callback_data))
+    except Exception as exc:
+        return {
+            "ok": False,
+            "expected_tabs": list(EXPECTED_PLATFORM_MENU_TABS),
+            "tabs": [],
+            "web_app_urls": [],
+            "fallback_callbacks": [],
+            "error": str(exc),
+        }
+
+    tabs: list[str] = []
+    paths: list[str] = []
+    for url in web_app_urls:
+        parts = urlsplit(url)
+        paths.append(parts.path)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        tab = query.get("tab")
+        if tab:
+            tabs.append(tab)
+
+    ok = (
+        set(EXPECTED_PLATFORM_MENU_TABS).issubset(set(tabs))
+        and all(path.rstrip("/") == MINI_APP_PATH for path in paths)
+        and not fallback_callbacks
+    )
+    return {
+        "ok": ok,
+        "expected_tabs": list(EXPECTED_PLATFORM_MENU_TABS),
+        "tabs": tabs,
+        "web_app_urls": web_app_urls,
+        "fallback_callbacks": fallback_callbacks,
+        "error": "",
     }
 
 
@@ -141,6 +205,7 @@ def _platform_launch_next_actions(
         raw_url: str,
         path_ok: bool,
         smoke: dict[str, Any] | None,
+        menu_markup_ready: bool,
 ) -> list[str]:
     actions: list[str] = []
     if menu_enabled and not api_enabled:
@@ -153,7 +218,9 @@ def _platform_launch_next_actions(
         actions.append("Fix the public HTTPS reverse proxy before enabling platform_api_enabled.")
     if public_entry_ready and not api_enabled:
         actions.append("Enable bot_settings.platform_api_enabled after public URL smoke passes.")
-    if public_entry_ready and api_enabled and not menu_enabled:
+    if public_entry_ready and api_enabled and not menu_markup_ready:
+        actions.append("Fix Bot main-menu WebApp button markup before enabling platform_menu_enabled.")
+    if public_entry_ready and api_enabled and menu_markup_ready and not menu_enabled:
         actions.append("Enable bot_settings.platform_menu_enabled after Bot menu smoke passes.")
     if not actions:
         actions.append("Launch checks pass for the current feature-flag state.")

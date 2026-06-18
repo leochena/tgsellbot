@@ -98,7 +98,8 @@ Channel admin detail includes an internal moderation history timeline. Public ch
 timeline and report-review audit notes.
 
 Before enabling Telegram Mini App menu buttons, run the launch gate. It validates that `platform_webapp_url` is a
-public HTTPS `/platform/app` URL and reports the current platform feature flags without printing secrets:
+public HTTPS `/platform/app` URL, renders the Bot main menu to confirm the WebApp buttons target the channel,
+Model Lab, and contribution tabs, and reports the current platform feature flags without printing secrets:
 
 ```bash
 cd /opt/tgsellbot

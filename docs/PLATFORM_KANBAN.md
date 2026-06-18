@@ -94,6 +94,14 @@ Model Lab, and platform operations layer.
   `--worker-runner`. The source-controlled runner/sudoers templates execute
   `platform_worker.py` as `tgsellbot-worker` with a cleared application
   environment, and the drain service skips until the root-owned runner exists.
+- The Virginia server has the root-owned Model Lab isolated runner installed
+  and smoke-tested.
+  - Commit: `ae555676641b8e24695661091d83a05bbf2922c7`.
+  - Server backup:
+    `/opt/tgsellbot_backups/20260619-043117-model-lab-isolated-runner`.
+  - Runner: `/usr/local/libexec/tgsellbot/run-isolated-worker.sh`.
+  - `tgsellbot-worker` cannot read `/opt/tgsellbot/.env`; the drain timer
+    remains disabled until a server-local key manifest is approved.
 
 ## In Progress
 
@@ -139,9 +147,8 @@ Model Lab, and platform operations layer.
 
 ## Blocked Or Needs External Setup
 
-- Model Lab batch drain requires the root-owned isolated Worker runner,
-  `tgsellbot-worker` user, sudoers template, and server-local key manifest to be
-  installed and smoke-tested before accepting real user keys at scale.
+- Model Lab batch drain still requires a server-local key manifest and explicit
+  approval before enabling `tgsellbot-model-test-drain.timer` for real keys.
 
 ## Verification Checklist
 
@@ -151,7 +158,7 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 87 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 87 tests, including Bot WebApp menu markup validation in the launch gate.
   - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 662 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
@@ -163,3 +170,5 @@ Model Lab, and platform operations layer.
     returned 401 `telegram_init_data_invalid`.
   - `scripts/platform_ops.py platform-launch-check --smoke` passed with
     `current_launch_live=true`.
+  - The Model Lab isolated runner help smoke passed through sudo as
+    `tgsellbot-worker`, and `.env` remained unreadable to that worker.

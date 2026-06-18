@@ -205,8 +205,15 @@ class TestPlatformOpsScript:
         assert ready["ready"]["can_enable_menu"] is True
         assert ready["ready"]["current_launch_live"] is False
         assert ready["checks"]["platform_webapp_url_public_https"]["normalized"] == "https://example.com/platform/app?source=bot"
+        assert ready["checks"]["bot_menu_webapp_markup"]["ok"] is True
+        assert set(ready["checks"]["bot_menu_webapp_markup"]["tabs"]) == {"channels", "model_lab", "contribute"}
+        assert all(
+            "/platform/app" in url
+            for url in ready["checks"]["bot_menu_webapp_markup"]["web_app_urls"]
+        )
         assert live["ok"] is True
         assert live["ready"]["current_launch_live"] is True
+        assert live["checks"]["bot_menu_webapp_markup"]["fallback_callbacks"] == []
         assert unsafe_menu["ok"] is False
         assert "Disable platform_menu_enabled" in unsafe_menu["next_actions"][0]
 
