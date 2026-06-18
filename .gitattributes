@@ -1,3 +1,5 @@
 # Ensure shell scripts always use LF line endings
+/.gitattributes text eol=lf
 *.sh text eol=lf
 docker-entrypoint.sh text eol=lf
+deploy/sudoers/* text eol=lf
