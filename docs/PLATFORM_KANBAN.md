@@ -50,6 +50,12 @@ Model Lab, and platform operations layer.
   `ledger-cutover-check` command. It wraps reconciliation, refuses incomplete
   scans or mismatches, and emits rollback/correction steps for the separate
   release decision.
+  - Deployed commit: `da1d2793a6daa1bb16e453f22ed71b95088af842`.
+  - Server backup: `/opt/tgsellbot_backups/20260619-044640-ledger-cutover-gate`.
+  - Current Virginia production check is intentionally not green:
+    `checked=18`, `mismatch_count=17`, `allow_source_switch=false`, proving the
+    production database still needs an approved opening-backfill release before
+    ledger reads can become authoritative.
 - Channel `bot_admin` ownership claims now require live Telegram admin
   verification before approval.
   - The admin review API fetches the claim/channel context and calls Telegram
@@ -128,6 +134,8 @@ Model Lab, and platform operations layer.
 2. Ledger source-of-truth decision
    - Keep current `users.balance` and `users.points_balance` fields
      authoritative until a separate release explicitly switches read paths.
+   - Current production `ledger-cutover-check` result is
+     `allow_source_switch=false` with 17 mismatches.
    - If switching, repeat rehearsal immediately before release and require
      `ledger-cutover-check` to pass with the rollback/correction steps attached.
 

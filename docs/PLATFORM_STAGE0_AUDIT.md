@@ -224,7 +224,10 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 
 - API key leakage: mitigated in foundation by refusing chat collection in UI copy, storing only fingerprint/mask in job records, passing one-time Worker keys through request body/stdin only, and recursively redacting reports/failure reasons.
 - SSRF: mitigated by `url_safety.py` plus the isolated Worker's runtime DNS and redirect revalidation. The Virginia isolated runner, sudoers file, and `tgsellbot-worker` smoke are installed; production drain should stay disabled until the server-local key manifest is approved.
-- Accounting drift: ledger is introduced but not yet authoritative. Reconciliation must precede any source-of-truth switch.
+- Accounting drift: ledger is introduced but not yet authoritative. The live
+  `ledger-cutover-check` gate currently rejects production source switching
+  (`checked=18`, `mismatch_count=17`); a separate opening-backfill release and
+  clean cutover check must precede any source-of-truth switch.
 - Menu overload: new platform menu entries are feature-flagged off by default.
 - False model claims: report limitation wording is required by default.
 - Public API auth: user endpoints validate Telegram Mini App `initData`; channel/relay review endpoints accept SQLAdmin session auth or reviewer-role Mini App auth; broader admin dashboards and audit-log endpoints remain session-gated. Future work still needs a full production Mini App client.

@@ -341,6 +341,12 @@ Latest Virginia rehearsal used a temporary database copy and preserved only reda
 - Reconcile: 0 mismatches
 - Temporary database and source dump were removed after the rehearsal.
 
+Current Virginia production remains on `users.balance` and
+`users.points_balance` as the authoritative read source. The first production
+`ledger-cutover-check` after adding the gate scanned 18 users and found 17
+mismatches, so `allow_source_switch=false`. Do not switch ledger reads until a
+separate opening-backfill release runs and this gate passes.
+
 ## Check-In And Lottery
 
 The bot includes linked engagement modules:
