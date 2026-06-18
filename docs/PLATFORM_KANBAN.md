@@ -72,6 +72,10 @@ Model Lab, and platform operations layer.
   for submissions, ownership claims, user reports, risk-state changes, and
   audit events. Public channel detail excludes internal report-review audit
   notes and does not expose the admin-only timeline.
+- Channel and relay review APIs now accept either an existing SQLAdmin session
+  or signed Telegram Mini App `initData` from users with `REVIEWER`,
+  `RISK_OPERATOR`, `OPERATOR`, `ADMIN`, or `OWNER` roles. Risk-blocking and
+  urgent/risk escalation actions require `RISK_OPERATOR` or higher.
 
 ## In Progress
 
@@ -98,12 +102,12 @@ Model Lab, and platform operations layer.
      rollback/correction steps.
 
 3. Channel center P0 hardening
-   - Add reviewer role gates for future non-admin moderation access.
+   - Extend reviewer-role gates only when new channel moderation endpoints are
+     introduced.
    - Continue enriching moderation history only when new moderation event types
      are introduced.
 
 4. Relay directory P0 hardening
-   - Add reviewer role gates for future non-admin moderation access.
    - Improve complaint follow-up workflows.
    - Expand public owner-managed profiles after verification workflows mature.
 
@@ -129,7 +133,7 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 650 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 652 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
 - Latest server runtime verification:

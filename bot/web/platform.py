@@ -123,21 +123,42 @@ async def _request_json(request: Request) -> dict[str, Any]:
     return data
 
 
-async def _guard(request: Request, handler, *args, admin_only: bool = False):
-    if not await _platform_enabled():
-        return _json_error("Platform API disabled", 404, "platform_disabled")
-    if not _is_authenticated(request):
-        if admin_only:
-            return _json_error("Unauthorized", 401, "unauthorized")
-        try:
-            auth = validate_telegram_init_data(
-                request.headers.get("x-telegram-init-data", ""),
-                EnvKeys.TOKEN,
-            )
-        except InitDataError as exc:
-            return _json_error(str(exc), 401, "telegram_init_data_invalid")
-        request.scope["platform_user_id"] = auth.user_id
+async def _guard(
+        request: Request,
+        handler,
+        *args,
+        admin_only: bool = False,
+        reviewer_only: bool = False,
+        risk_reviewer_only: bool = False,
+):
     try:
+        if not await _platform_enabled():
+            return _json_error("Platform API disabled", 404, "platform_disabled")
+        if not _is_authenticated(request):
+            if admin_only and not reviewer_only and not risk_reviewer_only:
+                return _json_error("Unauthorized", 401, "unauthorized")
+            try:
+                auth = validate_telegram_init_data(
+                    request.headers.get("x-telegram-init-data", ""),
+                    EnvKeys.TOKEN,
+                )
+            except InitDataError as exc:
+                return _json_error(str(exc), 401, "telegram_init_data_invalid")
+            request.scope["platform_user_id"] = auth.user_id
+            if risk_reviewer_only:
+                await _require_platform_role(
+                    auth.user_id,
+                    PLATFORM_RISK_REVIEWER_ROLES,
+                    code="risk_role_required",
+                    message="Risk operator role required.",
+                )
+            elif reviewer_only:
+                await _require_platform_role(
+                    auth.user_id,
+                    PLATFORM_REVIEWER_ROLES,
+                    code="reviewer_role_required",
+                    message="Reviewer role required.",
+                )
         return await handler(request, *args)
     except PermissionError as exc:
         return _json_error(str(exc), 403, "forbidden")
@@ -888,15 +909,15 @@ async def api_channel_detail(request: Request):
 
 
 async def api_admin_channel_submissions(request: Request):
-    return await _guard(request, api_admin_channel_submissions_impl, admin_only=True)
+    return await _guard(request, api_admin_channel_submissions_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_channel_detail(request: Request):
-    return await _guard(request, api_admin_channel_detail_impl, admin_only=True)
+    return await _guard(request, api_admin_channel_detail_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_channel_review(request: Request):
-    return await _guard(request, api_admin_channel_review_impl, admin_only=True)
+    return await _guard(request, api_admin_channel_review_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_channel_interaction(request: Request):
@@ -908,19 +929,19 @@ async def api_channel_claim(request: Request):
 
 
 async def api_channel_claim_review(request: Request):
-    return await _guard(request, api_channel_claim_review_impl, admin_only=True)
+    return await _guard(request, api_channel_claim_review_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_channel_claims(request: Request):
-    return await _guard(request, api_admin_channel_claims_impl, admin_only=True)
+    return await _guard(request, api_admin_channel_claims_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_channel_reports(request: Request):
-    return await _guard(request, api_admin_channel_reports_impl, admin_only=True)
+    return await _guard(request, api_admin_channel_reports_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_channel_report_review(request: Request):
-    return await _guard(request, api_admin_channel_report_review_impl, admin_only=True)
+    return await _guard(request, api_admin_channel_report_review_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_channel_owner_profile(request: Request):
@@ -940,15 +961,15 @@ async def api_relay_detail(request: Request):
 
 
 async def api_admin_relays(request: Request):
-    return await _guard(request, api_admin_relays_impl, admin_only=True)
+    return await _guard(request, api_admin_relays_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_relay_detail(request: Request):
-    return await _guard(request, api_admin_relay_detail_impl, admin_only=True)
+    return await _guard(request, api_admin_relay_detail_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_relay_review(request: Request):
-    return await _guard(request, api_admin_relay_review_impl, admin_only=True)
+    return await _guard(request, api_admin_relay_review_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_relay_owner_profile(request: Request):
@@ -960,11 +981,11 @@ async def api_relay_claim(request: Request):
 
 
 async def api_relay_claim_review(request: Request):
-    return await _guard(request, api_relay_claim_review_impl, admin_only=True)
+    return await _guard(request, api_relay_claim_review_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_relay_claims(request: Request):
-    return await _guard(request, api_admin_relay_claims_impl, admin_only=True)
+    return await _guard(request, api_admin_relay_claims_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_relay_feedback(request: Request):
@@ -972,11 +993,11 @@ async def api_relay_feedback(request: Request):
 
 
 async def api_admin_relay_feedback(request: Request):
-    return await _guard(request, api_admin_relay_feedback_impl, admin_only=True)
+    return await _guard(request, api_admin_relay_feedback_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_relay_feedback_review(request: Request):
-    return await _guard(request, api_admin_relay_feedback_review_impl, admin_only=True)
+    return await _guard(request, api_admin_relay_feedback_review_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_dashboard(request: Request):
@@ -988,7 +1009,7 @@ async def api_admin_owner_dashboards(request: Request):
 
 
 async def api_admin_review_workload(request: Request):
-    return await _guard(request, api_admin_review_workload_impl, admin_only=True)
+    return await _guard(request, api_admin_review_workload_impl, admin_only=True, reviewer_only=True)
 
 
 async def api_admin_audit_logs(request: Request):

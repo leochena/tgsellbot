@@ -84,7 +84,10 @@ runtime serves:
 - `GET /platform/reports`
 - `GET /platform/api/...`
 
-Admin review endpoints remain session-gated and do not expose SQLAdmin login or generic database views in this mode.
+Generic admin endpoints remain session-gated and do not expose SQLAdmin login or database views in this mode.
+Channel and relay review APIs can accept signed Telegram Mini App `initData` from reviewer-role users
+(`REVIEWER`, `RISK_OPERATOR`, `OPERATOR`, `ADMIN`, or `OWNER`). Risk-blocking and risk/urgent escalation actions require
+`RISK_OPERATOR` or higher. Broader admin dashboards and audit-log APIs remain session-gated.
 The Platform Review workspace can filter channel reports, relay feedback, and relay complaints by `assigned_to`,
 `reviewed_by`, and `escalation`; use `unassigned` or `unreviewed` for backlog triage.
 Channel admin detail includes an internal moderation history timeline. Public channel detail intentionally omits this

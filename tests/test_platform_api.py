@@ -604,8 +604,8 @@ class TestPlatformAPI:
         assert other_user_reports.status_code == 200
         assert _json(other_user_reports)["reports"] == []
         assert other_visibility.status_code == 404
-        assert admin_only.status_code == 401
-        assert _json(admin_only)["code"] == "unauthorized"
+        assert admin_only.status_code == 403
+        assert _json(admin_only)["code"] == "reviewer_role_required"
 
     async def test_public_model_report_entries_are_visibility_scoped_and_redacted(self, user_factory):
         await _set_platform_api_enabled("1")
@@ -1046,6 +1046,166 @@ class TestPlatformAPI:
         assert channel_review.status_code == 200
         assert relay_review.status_code == 200
 
+    async def test_reviewer_init_data_can_use_channel_review_api_without_admin_session(self, user_factory):
+        await _set_platform_api_enabled("1")
+        await _role_user(user_factory, 240080, "REVIEWER")
+        await _role_user(user_factory, 240081, "RISK_OPERATOR")
+        await user_factory(telegram_id=240082)
+        reviewer_init_data = make_init_data(240080, token="test_token")
+        risk_init_data = make_init_data(240081, token="test_token")
+        ordinary_init_data = make_init_data(240082, token="test_token")
+        channel = await submit_channel(
+            {
+                "channel": "@reviewer_gate_channel",
+                "category": "ai",
+                "language": "zh",
+                "reason": "reviewer gate",
+            },
+            submitter_id=240080,
+        )
+
+        ordinary_list = await api_admin_channel_submissions(_request(
+            path="/platform/api/admin/channels/submissions",
+            authenticated=False,
+            init_data=ordinary_init_data,
+        ))
+        reviewer_list = await api_admin_channel_submissions(_request(
+            path="/platform/api/admin/channels/submissions",
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        review = await api_admin_channel_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/channels/submissions/{channel['submission']['id']}/review",
+            path_params={"submission_id": channel["submission"]["id"]},
+            body={"status": "approved", "notes": "reviewed through init data"},
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        await api_channel_interaction(_request(
+            method="POST",
+            path=f"/platform/api/channels/{channel['channel']['id']}/interactions",
+            path_params={"channel_id": channel["channel"]["id"]},
+            body={"action": "report", "source": "mini_app"},
+            authenticated=False,
+            init_data=ordinary_init_data,
+        ))
+        report_list = await api_admin_channel_reports(_request(
+            path="/platform/api/admin/channel-reports",
+            query="status=reported",
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        denied_risk_review = await api_admin_channel_report_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/channels/{channel['channel']['id']}/report-review",
+            path_params={"channel_id": channel["channel"]["id"]},
+            body={"risk_status": "risk_blocked", "escalation": "risk", "notes": "risk only"},
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        risk_review = await api_admin_channel_report_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/channels/{channel['channel']['id']}/report-review",
+            path_params={"channel_id": channel["channel"]["id"]},
+            body={"risk_status": "risk_blocked", "escalation": "risk", "notes": "risk reviewed"},
+            authenticated=False,
+            init_data=risk_init_data,
+        ))
+
+        assert ordinary_list.status_code == 403
+        assert _json(ordinary_list)["code"] == "reviewer_role_required"
+        assert reviewer_list.status_code == 200
+        assert review.status_code == 200
+        assert report_list.status_code == 200
+        assert _json(report_list)["reports"][0]["report"]["report_count"] == 1
+        assert denied_risk_review.status_code == 403
+        assert _json(denied_risk_review)["code"] == "risk_role_required"
+        assert risk_review.status_code == 200
+
+    async def test_reviewer_init_data_can_use_relay_review_api_without_admin_session(self, user_factory):
+        await _set_platform_api_enabled("1")
+        await _role_user(user_factory, 240083, "REVIEWER")
+        await _role_user(user_factory, 240084, "RISK_OPERATOR")
+        await user_factory(telegram_id=240085)
+        reviewer_init_data = make_init_data(240083, token="test_token")
+        risk_init_data = make_init_data(240084, token="test_token")
+        ordinary_init_data = make_init_data(240085, token="test_token")
+        relay = await submit_relay_provider(
+            {
+                "name": "Reviewer Gate Relay",
+                "base_url": "https://reviewer-gate-relay.example.com/v1",
+                "protocol": "openai-compatible",
+            },
+            submitter_id=240083,
+        )
+
+        ordinary_list = await api_admin_relays(_request(
+            path="/platform/api/admin/relays",
+            authenticated=False,
+            init_data=ordinary_init_data,
+        ))
+        reviewer_list = await api_admin_relays(_request(
+            path="/platform/api/admin/relays",
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        review = await api_admin_relay_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/relays/{relay['id']}/review",
+            path_params={"provider_id": relay["id"]},
+            body={"status": "approved", "risk_status": "normal", "notes": "reviewed through init data"},
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        feedback = await api_relay_feedback(_request(
+            method="POST",
+            path=f"/platform/api/relays/{relay['id']}/feedback",
+            path_params={"provider_id": relay["id"]},
+            body={"feedback_type": "complaint", "text": "reviewer gate complaint"},
+            authenticated=False,
+            init_data=ordinary_init_data,
+        ))
+        complaint = _json(feedback)["result"]
+        feedback_list = await api_admin_relay_feedback(_request(
+            path="/platform/api/admin/relay-feedback",
+            query="feedback_type=complaint",
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        denied_risk_review = await api_admin_relay_feedback_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/relay-feedback/{complaint['id']}/review",
+            path_params={"feedback_id": complaint["id"]},
+            body={"status": "risk_blocked", "escalation": "urgent", "notes": "risk only"},
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
+        risk_review = await api_admin_relay_feedback_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/relay-feedback/{complaint['id']}/review",
+            path_params={"feedback_id": complaint["id"]},
+            body={
+                "status": "risk_blocked",
+                "escalation": "urgent",
+                "notes": "risk reviewed",
+                "outcome": "escalated",
+            },
+            authenticated=False,
+            init_data=risk_init_data,
+        ))
+
+        assert ordinary_list.status_code == 403
+        assert _json(ordinary_list)["code"] == "reviewer_role_required"
+        assert reviewer_list.status_code == 200
+        assert review.status_code == 200
+        assert feedback.status_code == 201
+        assert feedback_list.status_code == 200
+        assert _json(feedback_list)["feedback"][0]["feedback"]["id"] == complaint["id"]
+        assert denied_risk_review.status_code == 403
+        assert _json(denied_risk_review)["code"] == "risk_role_required"
+        assert risk_review.status_code == 200
+
     async def test_mini_app_api_discovers_and_reads_relay_directory(self, user_factory):
         await _set_platform_api_enabled("1")
         await _role_user(user_factory, 240040)
@@ -1324,7 +1484,7 @@ class TestPlatformAPI:
             authenticated=True,
         ))
 
-        denied = await api_admin_relay_detail(_request(
+        reviewer_detail = await api_admin_relay_detail(_request(
             path=f"/platform/api/admin/relays/{relay['id']}",
             path_params={"provider_id": relay["id"]},
             authenticated=False,
@@ -1338,8 +1498,7 @@ class TestPlatformAPI:
         payload = _json(detail)["result"]
 
         assert claim.status_code == 201
-        assert denied.status_code == 401
-        assert _json(denied)["code"] == "unauthorized"
+        assert reviewer_detail.status_code == 200
         assert detail.status_code == 200
         assert payload["provider"]["name"] == "Admin Detail Relay"
         assert payload["provider"]["base_url"] == "https://admin-detail-relay.example.com/v1"
@@ -1630,7 +1789,8 @@ class TestPlatformAPI:
             authenticated=True,
         ))
 
-        assert denied.status_code == 401
+        assert denied.status_code == 403
+        assert _json(denied)["code"] == "reviewer_role_required"
         assert detail.status_code == 200
         payload = _json(detail)["result"]
         assert payload["channel"]["risk_notes"] == "internal detail notes"
@@ -1885,12 +2045,13 @@ class TestPlatformAPI:
         assert any(getattr(route, "path", "") == "/platform/api/owner/dashboard" for route in platform_routes)
         assert any(getattr(route, "path", "") == "/platform/api/admin/owners/dashboard" for route in platform_routes)
 
-    async def test_admin_review_workload_is_session_only_and_reports_assignments(self, user_factory):
+    async def test_admin_review_workload_allows_session_or_reviewer_role_and_reports_assignments(self, user_factory):
         await _set_platform_api_enabled("1")
         await _role_user(user_factory, 240060, "RISK_OPERATOR")
         await user_factory(telegram_id=240061)
         await user_factory(telegram_id=240062)
         init_data = make_init_data(240062, token="test_token")
+        reviewer_init_data = make_init_data(240060, token="test_token")
 
         channel = await submit_channel(
             {
@@ -1963,10 +2124,16 @@ class TestPlatformAPI:
             path="/platform/api/admin/review-workload",
             authenticated=True,
         ))
+        reviewer_allowed = await api_admin_review_workload(_request(
+            path="/platform/api/admin/review-workload",
+            authenticated=False,
+            init_data=reviewer_init_data,
+        ))
 
-        assert denied.status_code == 401
-        assert _json(denied)["code"] == "unauthorized"
+        assert denied.status_code == 403
+        assert _json(denied)["code"] == "reviewer_role_required"
         assert allowed.status_code == 200
+        assert reviewer_allowed.status_code == 200
         workload = _json(allowed)["workload"]
         assert workload["summary"]["open_total"] == 2
         assert workload["summary"]["unassigned_total"] == 1
@@ -2036,7 +2203,7 @@ class TestPlatformAPI:
         assert "relay-token" not in str(_json(warning))
         assert any(getattr(route, "path", "") == "/platform/api/admin/audit-logs" for route in platform_routes)
 
-    async def test_admin_routes_reject_mini_app_user(self, user_factory):
+    async def test_review_routes_reject_non_reviewer_mini_app_user(self, user_factory):
         await _set_platform_api_enabled("1")
         await user_factory(telegram_id=240020)
         init_data = make_init_data(240020, token="test_token")
@@ -2047,8 +2214,8 @@ class TestPlatformAPI:
             init_data=init_data,
         ))
 
-        assert denied.status_code == 401
-        assert _json(denied)["code"] == "unauthorized"
+        assert denied.status_code == 403
+        assert _json(denied)["code"] == "reviewer_role_required"
 
     async def test_admin_dashboard_is_session_only_and_reports_unavailable_coverage(self, user_factory):
         await _set_platform_api_enabled("1")
