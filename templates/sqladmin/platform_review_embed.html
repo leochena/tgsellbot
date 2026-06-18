@@ -1,0 +1,28 @@
+<div class="col-12">
+  <div class="admin-platform-review-frame">
+    <iframe
+      src="/admin/platform/review/app"
+      title="{{ admin_t('admin_web.platform_review') }}"
+      loading="eager"
+      referrerpolicy="same-origin"
+    ></iframe>
+  </div>
+</div>
+<style>
+  .admin-platform-review-frame {
+    width: 100%;
+    min-height: calc(100vh - 150px);
+    background: #f6f7f8;
+    border: 1px solid #d9dee5;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .admin-platform-review-frame iframe {
+    display: block;
+    width: 100%;
+    min-height: calc(100vh - 150px);
+    border: 0;
+    background: #f6f7f8;
+  }
+</style>

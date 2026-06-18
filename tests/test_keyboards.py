@@ -34,6 +34,16 @@ def _has_url_button(markup):
     return False
 
 
+def _all_web_app_urls(markup):
+    """Extract all Telegram Web App URLs from markup."""
+    result = []
+    for row in markup.inline_keyboard:
+        for btn in row:
+            if btn.web_app:
+                result.append(btn.web_app.url)
+    return result
+
+
 class TestMainMenu:
 
     def test_basic_buttons_present(self):
@@ -67,6 +77,7 @@ class TestMainMenu:
         markup = main_menu(role=1, channel="https://t.me/gpt_free_plus_team")
         cbs = _all_callback_data(markup)
         assert "group_invite_link" in cbs
+        assert "group_invite_rewards" in cbs
         assert not _has_url_button(markup)
 
     def test_helper_button(self):
@@ -76,6 +87,47 @@ class TestMainMenu:
     def test_no_channel_no_helper(self):
         markup = main_menu(role=1)
         assert not _has_url_button(markup)
+
+    def test_platform_buttons_are_feature_flagged(self):
+        disabled = _all_callback_data(main_menu(role=1, platform_enabled=False))
+        enabled = _all_callback_data(main_menu(role=1, platform_enabled=True))
+
+        assert "platform_channels" not in disabled
+        assert "platform_model_lab" not in disabled
+        assert "platform_contribute" not in disabled
+        assert "platform_channels" in enabled
+        assert "platform_model_lab" in enabled
+        assert "platform_contribute" in enabled
+
+    def test_platform_buttons_use_web_app_when_url_is_configured(self):
+        markup = main_menu(
+            role=1,
+            platform_enabled=True,
+            platform_webapp_url="https://example.com/platform/app?source=bot",
+        )
+        callbacks = _all_callback_data(markup)
+        web_app_urls = _all_web_app_urls(markup)
+
+        assert "platform_channels" not in callbacks
+        assert "platform_model_lab" not in callbacks
+        assert "platform_contribute" not in callbacks
+        assert "https://example.com/platform/app?source=bot&tab=channels" in web_app_urls
+        assert "https://example.com/platform/app?source=bot&tab=model_lab" in web_app_urls
+        assert "https://example.com/platform/app?source=bot&tab=contribute" in web_app_urls
+
+    def test_platform_buttons_fall_back_when_url_is_not_public_https(self):
+        markup = main_menu(
+            role=1,
+            platform_enabled=True,
+            platform_webapp_url="http://localhost:3000/platform/app",
+        )
+        callbacks = _all_callback_data(markup)
+        web_app_urls = _all_web_app_urls(markup)
+
+        assert "platform_channels" in callbacks
+        assert "platform_model_lab" in callbacks
+        assert "platform_contribute" in callbacks
+        assert not web_app_urls
 
 
 class TestProfileKeyboard:

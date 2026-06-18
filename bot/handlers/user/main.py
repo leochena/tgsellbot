@@ -62,6 +62,15 @@ def _invite_group_config() -> str:
     return EnvKeys.ANNOUNCEMENT_CHAT_ID or EnvKeys.CHANNEL_ID or EnvKeys.CHANNEL_URL
 
 
+async def _platform_menu_enabled() -> bool:
+    value = (await get_bot_setting("platform_menu_enabled", "0")).strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+async def _platform_webapp_url() -> str:
+    return (await get_bot_setting("platform_webapp_url", "")).strip()
+
+
 @router.message(F.text.startswith('/start'))
 async def start(message: Message, state: FSMContext):
     """
@@ -118,6 +127,8 @@ async def start(message: Message, state: FSMContext):
         channel=_invite_group_config() or channel_username,
         helper=EnvKeys.HELPER_ID,
         cart_count=cart_count,
+        platform_enabled=await _platform_menu_enabled(),
+        platform_webapp_url=await _platform_webapp_url(),
     )
     await message.answer(localize("menu.title"), reply_markup=markup)
     await message.delete()
@@ -165,6 +176,8 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
         channel=_invite_group_config() or channel_username,
         helper=EnvKeys.HELPER_ID,
         cart_count=cart_count,
+        platform_enabled=await _platform_menu_enabled(),
+        platform_webapp_url=await _platform_webapp_url(),
     )
     await call.message.edit_text(localize("menu.title"), reply_markup=markup)
     await state.clear()
@@ -176,6 +189,17 @@ async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     Show rules text and the configured balance/payment notice.
     """
     await call.message.edit_text(await _build_rules_text(), reply_markup=back("back_to_menu"))
+    await state.clear()
+
+
+@router.callback_query(F.data.in_({"platform_channels", "platform_model_lab", "platform_contribute"}))
+async def platform_placeholder_handler(call: CallbackQuery, state: FSMContext):
+    text_map = {
+        "platform_channels": "platform.placeholder.channels",
+        "platform_model_lab": "platform.placeholder.model_lab",
+        "platform_contribute": "platform.placeholder.contribute",
+    }
+    await call.message.edit_text(localize(text_map[call.data]), reply_markup=back("back_to_menu"))
     await state.clear()
 
 
@@ -269,7 +293,14 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
             user = await check_user_cached(user_id)
             role_id = user.get('role_id')
             cart_count = await get_cart_count(user_id)
-            markup = main_menu(role_id, _invite_group_config() or channel_username, helper, cart_count=cart_count)
+            markup = main_menu(
+                role_id,
+                _invite_group_config() or channel_username,
+                helper,
+                cart_count=cart_count,
+                platform_enabled=await _platform_menu_enabled(),
+                platform_webapp_url=await _platform_webapp_url(),
+            )
             await call.message.edit_text(localize("menu.title"), reply_markup=markup)
             await state.clear()
             return

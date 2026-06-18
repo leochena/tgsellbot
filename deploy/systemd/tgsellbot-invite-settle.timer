@@ -1,0 +1,12 @@
+[Unit]
+Description=Run TGSellBot invite reward settlement hourly
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=tgsellbot-invite-settle.service
+
+[Install]
+WantedBy=timers.target

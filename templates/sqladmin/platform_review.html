@@ -1,0 +1,14 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content_header %}
+<div class="row align-items-center">
+  <div class="col">
+    <h2 class="page-title">{{ admin_t('admin_web.platform_review') }}</h2>
+    <div class="page-pretitle">{{ admin_t('admin_web.platform_review.subtitle') }}</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "sqladmin/platform_review_embed.html" %}
+{% endblock %}

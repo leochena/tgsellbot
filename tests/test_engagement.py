@@ -11,7 +11,7 @@ from bot.database.methods.engagement import (
     perform_daily_checkin,
 )
 from bot.database.methods.read import check_user
-from bot.database.models.main import CheckIns, LotteryWinners
+from bot.database.models.main import CheckIns, LedgerEntries, LotteryWinners
 from sqlalchemy import select
 
 
@@ -29,6 +29,13 @@ class TestCheckInLottery:
         user = await check_user(120001)
         assert user["balance"] == 0
         assert user["points_balance"] == 2
+        async with Database().session() as s:
+            ledger = (await s.execute(select(LedgerEntries).where(
+                LedgerEntries.user_id == 120001,
+                LedgerEntries.entry_type == "daily_checkin",
+            ))).scalars().one()
+            assert float(ledger.amount) == 2.0
+            assert ledger.idempotency_key.endswith(":points")
 
     async def test_checkin_only_once_per_day(self, user_factory):
         await user_factory(telegram_id=120002)

@@ -1,0 +1,4 @@
+@AGENTS.md
+@ARCHITECTURE.md
+@TESTING.md
+@CI_STATUS.md

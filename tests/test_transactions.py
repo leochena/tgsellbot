@@ -10,7 +10,7 @@ from bot.database.methods.transactions import buy_item_transaction, \
     process_payment_with_referral, \
     admin_balance_change
 from bot.database.methods.create import create_pending_payment
-from bot.database.models.main import BoughtGoods, ItemValues, Goods, Payments, Operations, ReferralEarnings, User
+from bot.database.models.main import BoughtGoods, ItemValues, Goods, LedgerEntries, Payments, Operations, ReferralEarnings, User
 
 
 async def _get_balance(telegram_id: int) -> float:
@@ -56,6 +56,12 @@ class TestBuyItemTransaction:
             assert bought[0].item_name == "Widget"
             assert bought[0].value == "val1"
             assert float(bought[0].price) == 100.0
+            ledger = (await s.execute(select(LedgerEntries).where(
+                LedgerEntries.user_id == 100001,
+                LedgerEntries.entry_type == "purchase_spend",
+            ))).scalars().one()
+            assert float(ledger.amount) == -100.0
+            assert ledger.reference_type == "bought_goods"
 
             widget = (await s.execute(select(Goods).where(Goods.name == "Widget"))).scalars().first()
             iv_count = (await s.execute(select(func.count()).select_from(ItemValues).where(
@@ -236,6 +242,12 @@ class TestRedeemItemWithPointsTransaction:
             assert bought.item_name == "PointsWidget"
             assert bought.value == "point-val"
             assert float(bought.price) == 0.0
+            ledger = (await s.execute(select(LedgerEntries).where(
+                LedgerEntries.user_id == 110001,
+                LedgerEntries.entry_type == "points_redeem",
+            ))).scalars().one()
+            assert float(ledger.amount) == -5.0
+            assert ledger.reference_type == "bought_goods"
 
             goods = (await s.execute(select(Goods).where(Goods.name == "PointsWidget"))).scalars().one()
             remaining_stock = (await s.execute(select(func.count()).select_from(ItemValues).where(
@@ -347,6 +359,12 @@ class TestProcessPaymentWithReferral:
             ))).scalars().all()
             assert len(ops) == 1
             assert float(ops[0].operation_value) == 500.0
+            ledger = (await s.execute(select(LedgerEntries).where(
+                LedgerEntries.user_id == 200001,
+                LedgerEntries.entry_type == "payment_topup",
+            ))).scalars().one()
+            assert float(ledger.amount) == 500.0
+            assert ledger.idempotency_key == "payment:test_provider:ext_001:balance"
 
     async def test_payment_idempotency(self, user_factory):
         await user_factory(telegram_id=200002, balance=0)
@@ -406,6 +424,10 @@ class TestProcessPaymentWithReferral:
             assert len(earnings) == 1
             assert float(earnings[0].amount) == 10.0
             assert float(earnings[0].original_amount) == 100.0
+            ledgers = (await s.execute(select(LedgerEntries).where(
+                LedgerEntries.entry_type.in_(["payment_topup", "referral_bonus"])
+            ))).scalars().all()
+            assert sorted(float(row.amount) for row in ledgers) == [10.0, 100.0]
 
     async def test_payment_no_referrer(self, user_factory):
         # User without referral_id
@@ -541,6 +563,12 @@ class TestAdminBalanceChange:
             ))).scalars().all()
             assert len(ops) == 1
             assert float(ops[0].operation_value) == 500.0
+            ledger = (await s.execute(select(LedgerEntries).where(
+                LedgerEntries.user_id == 300001,
+                LedgerEntries.entry_type == "admin_adjustment",
+            ))).scalars().one()
+            assert float(ledger.amount) == 500.0
+            assert ledger.reference_type == "operation"
 
     async def test_deduct_success(self, user_factory):
         await user_factory(telegram_id=300002, balance=500)

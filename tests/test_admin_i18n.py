@@ -52,12 +52,13 @@ class TestAdminI18n:
         assert "testserver" in url
 
     def test_model_names_and_labels_follow_context_locale(self):
-        from bot.web.admin import OperationsAdminView, RoleAdmin
+        from bot.web.admin import OperationsAdminView, PlatformReviewAdminView, RoleAdmin
         from bot.web.admin_i18n import admin_t, reset_current_admin_locale, set_current_admin_locale
 
         token = set_current_admin_locale("zh")
         try:
             assert admin_t(OperationsAdminView.name) == "商品运营"
+            assert admin_t(PlatformReviewAdminView.name) == "平台审核"
             assert RoleAdmin().column_label("permissions") == "权限"
         finally:
             reset_current_admin_locale(token)
@@ -65,6 +66,7 @@ class TestAdminI18n:
         token = set_current_admin_locale("en")
         try:
             assert admin_t(OperationsAdminView.name) == "Product Operations"
+            assert admin_t(PlatformReviewAdminView.name) == "Platform Review"
             assert RoleAdmin().column_label("permissions") == "Permissions"
         finally:
             reset_current_admin_locale(token)
@@ -143,3 +145,11 @@ class TestAdminI18n:
         assert "/client" not in layout
         assert "admin_web.client" not in layout
         assert "/admin/operations/app" in operations
+
+    def test_platform_review_page_uses_admin_app_iframe(self):
+        page = Path("templates/sqladmin/platform_review.html").read_text(encoding="utf-8")
+        embed = Path("templates/sqladmin/platform_review_embed.html").read_text(encoding="utf-8")
+
+        assert "admin_web.platform_review" in page
+        assert "/admin/platform/review/app" in embed
+        assert "/client/api" not in embed

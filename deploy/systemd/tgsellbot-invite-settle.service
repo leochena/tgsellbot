@@ -1,0 +1,16 @@
+[Unit]
+Description=TGSellBot mature group invite reward settlement
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tgsellbot
+EnvironmentFile=/opt/tgsellbot/.env
+ExecStart=/opt/tgsellbot/.venv/bin/python /opt/tgsellbot/scripts/platform_ops.py invite-settle --limit 500 --max-risk-score 0
+User=tgsellbot
+Group=tgsellbot
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal

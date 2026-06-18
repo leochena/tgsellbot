@@ -209,6 +209,38 @@ Operational notes:
 - Group invite rewards are credited only after the invited user joins through a personal invite link and completes check-in.
 - `bot_settings.group_invite_reward_tiers` controls tiered invite rewards. Use `1=1,10=2,30=3`: the left side is the inviter's cumulative successful invite count, the right side is the points for this invite. Empty value falls back to fixed `GROUP_INVITE_REWARD_POINTS`.
 
+## Invite Reward Settlement
+
+Group invite rewards are intentionally delayed: a join is stored first, the invited user must check in, and the inviter's points are credited only after both the 72-hour freeze and the 7-day settlement window have elapsed.
+
+Run a manual settlement pass after migrations and before enabling the timer:
+
+```bash
+cd /opt/tgsellbot
+/opt/tgsellbot/.venv/bin/python /opt/tgsellbot/scripts/platform_ops.py invite-settle --limit 100 --max-risk-score 0
+```
+
+Expected output is JSON with `settled`, `blocked`, `rewards`, and `blocked_rewards`. The command is idempotent: already credited rewards have a ledger idempotency key and will not be credited again.
+
+If an already settled reward is later marked `risk_blocked` or `rejected` in the admin review queue, the review path writes a one-time reversal ledger entry and subtracts the credited points from the inviter. If that reward is later cleared back to `qualified`, the review path restores the settled points with a reinstatement ledger entry. Repeating the same review does not create duplicate ledger rows.
+
+For systemd deployments, install the timer templates:
+
+```bash
+sudo cp deploy/systemd/tgsellbot-invite-settle.service /etc/systemd/system/
+sudo cp deploy/systemd/tgsellbot-invite-settle.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tgsellbot-invite-settle.timer
+systemctl list-timers 'tgsellbot-invite-settle*'
+journalctl -u tgsellbot-invite-settle.service -n 50 --no-pager
+```
+
+The timer runs hourly with a small randomized delay. Rewards with risk score above `0` remain blocked for admin review. To pause settlement without stopping the bot:
+
+```bash
+sudo systemctl disable --now tgsellbot-invite-settle.timer
+```
+
 ## 24/7 Running Notes
 
 - Use Docker `restart: unless-stopped` on VPS.

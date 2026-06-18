@@ -1,9 +1,25 @@
 from typing import Callable, Iterable, Tuple
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from bot.i18n import get_supported_locales, localize
 from bot.database.models import Permission
 from bot.misc import LazyPaginator # noqa: F401
+from bot.misc.url_safety import UnsafeURL, normalize_public_https_url
+
+
+def _platform_tab_url(base_url: str | None, tab: str) -> str:
+    text = (base_url or "").strip()
+    if not text:
+        return ""
+    try:
+        safe_url = normalize_public_https_url(text, allow_path=True)
+    except UnsafeURL:
+        return ""
+    parts = urlsplit(safe_url.normalized)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["tab"] = tab
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def main_menu(
@@ -11,11 +27,25 @@ def main_menu(
         channel: str | None = None,
         helper: str | None = None,
         cart_count: int = 0,
+        platform_enabled: bool = False,
+        platform_webapp_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     """
     Main menu.
     """
     kb = InlineKeyboardBuilder()
+    if platform_enabled:
+        channel_url = _platform_tab_url(platform_webapp_url, "channels")
+        model_lab_url = _platform_tab_url(platform_webapp_url, "model_lab")
+        contribute_url = _platform_tab_url(platform_webapp_url, "contribute")
+        if channel_url and model_lab_url and contribute_url:
+            kb.button(text=localize("btn.discover_channels"), web_app=WebAppInfo(url=channel_url))
+            kb.button(text=localize("btn.model_lab"), web_app=WebAppInfo(url=model_lab_url))
+            kb.button(text=localize("btn.contribution_tasks"), web_app=WebAppInfo(url=contribute_url))
+        else:
+            kb.button(text=localize("btn.discover_channels"), callback_data="platform_channels")
+            kb.button(text=localize("btn.model_lab"), callback_data="platform_model_lab")
+            kb.button(text=localize("btn.contribution_tasks"), callback_data="platform_contribute")
     kb.button(text=localize("btn.shop"), callback_data="shop")
     kb.button(text=localize("btn.rules"), callback_data="rules")
     kb.button(text=localize("btn.checkin"), callback_data="checkin")
@@ -29,6 +59,7 @@ def main_menu(
         kb.button(text=localize("btn.support"), url=f"tg://user?id={helper}")
     if channel:
         kb.button(text=localize("btn.invite_group"), callback_data="group_invite_link")
+        kb.button(text=localize("btn.invite_rewards"), callback_data="group_invite_rewards")
     if Permission.has_any_admin_perm(role):
         kb.button(text=localize("btn.admin_menu"), callback_data="console")
     kb.adjust(2)

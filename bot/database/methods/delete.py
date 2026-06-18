@@ -6,6 +6,17 @@ from bot.database.models import Database, Goods, ItemValues, Categories, Role, U
 from bot.database.models.main import PromoCodes, CartItems, Reviews
 from bot.database.methods.audit import log_audit
 
+BUILT_IN_ROLE_NAMES = {
+    'USER',
+    'CHANNEL_OWNER',
+    'STATION_OWNER',
+    'REVIEWER',
+    'RISK_OPERATOR',
+    'OPERATOR',
+    'ADMIN',
+    'OWNER',
+}
+
 
 async def delete_item(item_name: str) -> None:
     """Delete a product and all of its stock entries."""
@@ -64,7 +75,7 @@ async def delete_role(role_id: int) -> tuple[bool, str | None]:
             return False, "Role not found"
         if role.default:
             return False, "Cannot delete the default role"
-        if role.name in ('USER', 'ADMIN', 'OWNER'):
+        if role.name in BUILT_IN_ROLE_NAMES:
             return False, "Cannot delete built-in roles"
         user_count = (await s.execute(
             select(func.count(User.telegram_id)).where(User.role_id == role_id)

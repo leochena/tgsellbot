@@ -10,7 +10,7 @@ from bot.database import Database
 from bot.database.methods.audit import log_audit
 from bot.database.methods.read import invalidate_user_cache
 from bot.database.models import User
-from bot.database.models.main import CheckIns, Goods, LotteryEntries, LotteryEvents, LotteryWinners
+from bot.database.models.main import CheckIns, Goods, LedgerEntries, LotteryEntries, LotteryEvents, LotteryWinners
 
 
 def _date_start(day=None) -> datetime:
@@ -70,23 +70,36 @@ async def perform_daily_checkin(
         )).scalars().first()
 
         points_reward = base_points_reward * streak
+        tickets_awarded = 0
         if points_reward > 0:
             user.points_balance += points_reward
 
-        tickets_awarded = 0
         if active_event and tickets > 0:
             for _ in range(tickets):
                 s.add(LotteryEntries(event_id=active_event.id, user_id=user_id, source="checkin"))
             tickets_awarded = tickets
 
-        s.add(CheckIns(
+        checkin = CheckIns(
             user_id=user_id,
             checkin_date=today,
             reward_amount=0,
             points_awarded=points_reward,
             tickets_awarded=tickets_awarded,
             streak=streak,
-        ))
+        )
+        s.add(checkin)
+        await s.flush()
+        if points_reward > 0:
+            s.add(LedgerEntries(
+                user_id=int(user_id),
+                account_type="points",
+                entry_type="daily_checkin",
+                amount=points_reward,
+                status="available",
+                reference_type="checkin",
+                reference_id=str(checkin.id),
+                idempotency_key=f"checkin:{user_id}:{today.date().isoformat()}:points",
+            ))
 
     await invalidate_user_cache(user_id)
     await log_audit(

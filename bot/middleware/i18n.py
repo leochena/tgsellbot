@@ -16,8 +16,8 @@ class LocaleMiddleware(BaseMiddleware):
             event: TelegramObject,
             data: dict[str, Any],
     ) -> Any:
-        user = None
-        if isinstance(event, (Message, CallbackQuery)):
+        user = getattr(event, "from_user", None)
+        if user is None and isinstance(event, (Message, CallbackQuery)):
             user = event.from_user
 
         locale = None

@@ -601,6 +601,23 @@ class OperationsAdminView(BaseView):
         )
 
 
+class PlatformReviewAdminView(BaseView):
+    name = "admin_web.platform_review"
+    identity = "platform_review"
+    icon = "fa-solid fa-layer-group"
+
+    @expose("/platform/review", methods=["GET"], identity="platform_review")
+    async def platform_review(self, request: Request):
+        return await self.templates.TemplateResponse(
+            request,
+            "sqladmin/platform_review.html",
+            {
+                "title": admin_t("admin_web.platform_review"),
+                "subtitle": admin_t("admin_web.platform_review.subtitle"),
+            },
+        )
+
+
 # Health & Metrics Endpoints
 async def health_check(request: Request) -> JSONResponse:
     health_status = {
@@ -655,6 +672,7 @@ def create_admin_app() -> Starlette:
 
     from bot.web.export import export_routes
     from bot.web.client import client_routes
+    from bot.web.platform import platform_routes
     session_max_age = max(int(getattr(EnvKeys, "ADMIN_SESSION_MAX_AGE_DAYS", 30)), 1) * 24 * 60 * 60
 
     routes = [
@@ -663,7 +681,7 @@ def create_admin_app() -> Starlette:
         Route("/metrics/prometheus", prometheus_metrics),
         Route("/admin/lang", set_admin_language, name="admin_lang"),
         Route("/admin/font-size", set_admin_font_size, name="admin_font_size"),
-    ] + export_routes + client_routes
+    ] + export_routes + client_routes + platform_routes
 
     app = Starlette(routes=routes)
     app.add_middleware(SessionMiddleware, secret_key=EnvKeys.SECRET_KEY, max_age=session_max_age)
@@ -684,6 +702,7 @@ def create_admin_app() -> Starlette:
     admin.templates.env.globals["admin_font_size_url"] = admin_set_font_size_url
 
     admin.add_view(OperationsAdminView)
+    admin.add_view(PlatformReviewAdminView)
     admin.add_view(UserAdmin)
     admin.add_view(RoleAdmin)
     admin.add_view(BoughtGoodsAdmin)

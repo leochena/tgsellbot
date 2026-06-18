@@ -9,16 +9,20 @@ from aiogram.enums import ChatMemberStatus
 from aiogram.enums.chat_type import ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
+from aiogram.types import CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.database.methods import (
     ensure_user_exists,
     get_group_invite_share_template,
     get_group_invite_reward_tiers_text,
+    get_inviter_group_invite_reward,
     get_or_create_group_invite_link,
+    list_inviter_group_invite_rewards,
     parse_group_invite_reward_tiers,
     perform_daily_checkin,
     record_group_invite_join,
+    record_user_appeal,
     reward_group_inviter_after_checkin,
 )
 from bot.i18n import get_locale, localize
@@ -28,6 +32,7 @@ from bot.misc import EnvKeys
 router = Router()
 logger = logging.getLogger(__name__)
 _WELCOME_DEDUP_SECONDS = 60
+_REWARD_HISTORY_PAGE_SIZE = 5
 _recent_welcome_keys: dict[tuple[int, int], float] = {}
 
 JOINED_STATUSES = {
@@ -114,6 +119,118 @@ def _invite_reward_display(default_points: int, tiers_text: str | None) -> str:
     return "；".join(parts)
 
 
+def _invite_reward_status_text(reward: dict) -> str:
+    points = int(reward.get("points_awarded") or 0)
+    status = str(reward.get("status") or "")
+    if status == "risk_blocked":
+        return localize("group_invite.risk_blocked", points=points)
+    if status == "rejected":
+        return localize("group_invite.rejected", points=points)
+    if status == "rewarded" or not reward.get("pending_settlement"):
+        return localize("group_invite.rewarded", points=points)
+    return localize("group_invite.pending_settlement", points=points)
+
+
+def _invite_reward_history_status_key(status: str) -> str:
+    if status in {"pending", "qualified", "rewarded", "risk_blocked", "rejected"}:
+        return f"group_invite.status.{status}"
+    return "group_invite.status.pending"
+
+
+def _render_invite_reward_history(summary: dict) -> str:
+    rewards = list(summary.get("rewards") or [])
+    counts = summary.get("status_counts") or {}
+    lines = [
+        localize("group_invite.rewards.title"),
+        localize(
+            "group_invite.rewards.summary",
+            total=int(summary.get("total") or 0),
+            pending=int(counts.get("pending") or 0),
+            qualified=int(counts.get("qualified") or 0),
+            rewarded=int(counts.get("rewarded") or 0),
+            risk_blocked=int(counts.get("risk_blocked") or 0),
+            rejected=int(counts.get("rejected") or 0),
+        ),
+    ]
+    if not rewards:
+        lines.append(localize("group_invite.rewards.empty"))
+        return "\n\n".join(lines)
+
+    lines.append("")
+    for reward in rewards:
+        status = str(reward.get("status") or "pending")
+        parts = [
+            localize(
+                "group_invite.rewards.item",
+                invited=reward.get("invited_id_masked") or "",
+                status=localize(_invite_reward_history_status_key(status)),
+                points=int(reward.get("points_awarded") or 0),
+                settlement_at=_format_invite_reward_time(reward.get("settlement_at") or reward.get("pending_until") or ""),
+            )
+        ]
+        reason = str(reward.get("reason") or "").strip()
+        if reason:
+            parts.append(localize("group_invite.rewards.reason", reason=reason))
+        lines.append("\n".join(parts))
+    if summary.get("has_more"):
+        lines.append(localize("group_invite.rewards.has_more"))
+    return "\n\n".join(lines)
+
+
+def _invite_reward_history_page(callback_data: str | None) -> int:
+    raw = str(callback_data or "")
+    if ":" not in raw:
+        return 0
+    try:
+        return max(int(raw.rsplit(":", 1)[1]), 0)
+    except ValueError:
+        return 0
+
+
+def _invite_reward_history_keyboard(summary: dict):
+    limit = max(int(summary.get("limit") or _REWARD_HISTORY_PAGE_SIZE), 1)
+    offset = max(int(summary.get("offset") or 0), 0)
+    page = offset // limit
+    rewards = list(summary.get("rewards") or [])
+
+    kb = InlineKeyboardBuilder()
+    for reward in rewards:
+        status = str(reward.get("status") or "")
+        if status not in {"risk_blocked", "rejected"}:
+            continue
+        kb.button(
+            text=localize(
+                "group_invite.rewards.appeal",
+                invited=reward.get("invited_id_masked") or "",
+            ),
+            callback_data=f"group_invite_reward_appeal:{int(reward.get('id') or 0)}",
+        )
+    if rewards:
+        kb.adjust(1)
+
+    nav_buttons: list[InlineKeyboardButton] = []
+    if offset > 0:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data=f"group_invite_rewards:{page - 1}"))
+    if offset > 0 or summary.get("has_more"):
+        nav_buttons.append(InlineKeyboardButton(
+            text=localize("group_invite.rewards.page", page=page + 1),
+            callback_data="noop",
+        ))
+    if summary.get("has_more"):
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data=f"group_invite_rewards:{page + 1}"))
+    if nav_buttons:
+        kb.row(*nav_buttons)
+    kb.row(InlineKeyboardButton(text=localize("btn.back"), callback_data="back_to_menu"))
+    return kb.as_markup()
+
+
+def _format_invite_reward_time(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "-"
+    return text.replace("T", " ")[:16]
+
+
 async def _send_group_welcome(bot, chat_id: int, user) -> None:
     if not _should_send_welcome(chat_id, user.id):
         return
@@ -182,9 +299,87 @@ async def _send_invite_link(message_or_call: Message | CallbackQuery, state: FSM
         await state.clear()
 
 
+async def _send_invite_reward_history(call: CallbackQuery, state: FSMContext) -> None:
+    chat_id = _configured_group_chat_id()
+    page = _invite_reward_history_page(call.data)
+    summary = await list_inviter_group_invite_rewards(
+        call.from_user.id,
+        chat_id=chat_id,
+        limit=_REWARD_HISTORY_PAGE_SIZE,
+        offset=page * _REWARD_HISTORY_PAGE_SIZE,
+    )
+    await call.message.edit_text(
+        _render_invite_reward_history(summary),
+        reply_markup=_invite_reward_history_keyboard(summary),
+    )
+    await call.answer()
+    await state.clear()
+
+
+async def _submit_invite_reward_appeal(call: CallbackQuery) -> None:
+    try:
+        reward_id = int(str(call.data or "").rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        await call.answer(localize("group_invite.rewards.appeal_unavailable"), show_alert=True)
+        return
+
+    reward = await get_inviter_group_invite_reward(
+        call.from_user.id,
+        reward_id,
+        chat_id=_configured_group_chat_id(),
+    )
+    if not reward or reward.get("status") not in {"risk_blocked", "rejected"}:
+        await call.answer(localize("group_invite.rewards.appeal_unavailable"), show_alert=True)
+        return
+
+    try:
+        appeal = await record_user_appeal(
+            call.from_user.id,
+            reason=(
+                f"Invite reward review appeal for reward #{reward_id}; "
+                f"status={reward.get('status')}; reason={reward.get('reason') or ''}"
+            ),
+            source="bot_invite_reward_history",
+            evidence={
+                "reward_id": reward_id,
+                "chat_id": reward.get("chat_id"),
+                "status": reward.get("status"),
+                "points_awarded": reward.get("points_awarded"),
+                "public_reason": reward.get("reason"),
+                "invited_id_masked": reward.get("invited_id_masked"),
+            },
+            dedupe_key=f"invite_reward:{reward_id}",
+        )
+    except ValueError:
+        await call.answer(localize("group_invite.rewards.appeal_unavailable"), show_alert=True)
+        return
+
+    if appeal.get("duplicate"):
+        await call.answer(
+            localize("group_invite.rewards.appeal_existing", appeal_id=appeal["id"]),
+            show_alert=True,
+        )
+        return
+
+    await call.answer(
+        localize("group_invite.rewards.appeal_created", appeal_id=appeal["id"]),
+        show_alert=True,
+    )
+
+
 @router.callback_query(F.data == "group_invite_link")
 async def group_invite_link_callback(call: CallbackQuery, state: FSMContext):
     await _send_invite_link(call, state)
+
+
+@router.callback_query(F.data.startswith("group_invite_rewards"))
+async def group_invite_rewards_callback(call: CallbackQuery, state: FSMContext):
+    await _send_invite_reward_history(call, state)
+
+
+@router.callback_query(F.data.startswith("group_invite_reward_appeal:"))
+async def group_invite_reward_appeal_callback(call: CallbackQuery):
+    await _submit_invite_reward_appeal(call)
 
 
 @router.message(F.text.func(lambda text: _command_base(text) in GROUP_COMMANDS))
@@ -224,7 +419,7 @@ async def group_command_handler(message: Message, state: FSMContext):
         )
         text = _append_tomorrow_points(text, data["streak"])
         if reward:
-            text = f"{text}\n{localize('group_invite.rewarded', points=reward['points_awarded'])}"
+            text = f"{text}\n{_invite_reward_status_text(reward)}"
         await message.answer(text)
     elif result == "already_checked_in":
         streak = data.get("streak", 0)

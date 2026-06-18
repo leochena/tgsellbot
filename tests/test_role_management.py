@@ -31,6 +31,11 @@ class TestRoleCRUDMethods:
         assert 'USER' in names
         assert 'ADMIN' in names
         assert 'OWNER' in names
+        assert 'CHANNEL_OWNER' in names
+        assert 'STATION_OWNER' in names
+        assert 'REVIEWER' in names
+        assert 'RISK_OPERATOR' in names
+        assert 'OPERATOR' in names
         # Ordered by permissions ascending
         perms = [r['permissions'] for r in roles]
         assert perms == sorted(perms)

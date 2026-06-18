@@ -101,6 +101,8 @@ def setup_test_database():
     db = Database()
 
     async def _setup():
+        import bot.database.models.main  # noqa: F401
+
         async with db.engine.begin() as conn:
             await conn.run_sync(Database.BASE.metadata.create_all)
         from bot.database.models.main import Role
@@ -126,15 +128,36 @@ async def db_cleanup(setup_test_database):
     from bot.database.models.main import (
         ReferralEarnings, BoughtGoods, Operations, Payments,
         ItemValues, Goods, Categories, User, Role,
+        AuditLog,
         CheckIns, LotteryEntries, LotteryEvents, LotteryWinners,
         CartItems, GroupInviteLinks, GroupInviteRewards, BotSettings,
         PromoCodes, PromoCodeUsages,
+        LedgerEntries, Channels, ChannelSubmissions, ChannelClaims, ChannelInteractions,
+        InviteRetentionSnapshots,
+        RelayProviders, RelayClaims, RelayFeedback, ModelTestJobs, ModelTestReports,
+        ModelTestRuns, RelayAvailabilitySamples, TestSuites, FraudEvents,
     )
 
     db = Database()
     async with db.session() as s:
         # Delete in FK order
         await s.execute(delete(CheckIns))
+        await s.execute(delete(AuditLog))
+        await s.execute(delete(FraudEvents))
+        await s.execute(delete(RelayAvailabilitySamples))
+        await s.execute(delete(ModelTestRuns))
+        await s.execute(delete(ModelTestReports))
+        await s.execute(delete(ModelTestJobs))
+        await s.execute(delete(TestSuites))
+        await s.execute(delete(RelayFeedback))
+        await s.execute(delete(RelayClaims))
+        await s.execute(delete(RelayProviders))
+        await s.execute(delete(ChannelInteractions))
+        await s.execute(delete(ChannelClaims))
+        await s.execute(delete(ChannelSubmissions))
+        await s.execute(delete(Channels))
+        await s.execute(delete(InviteRetentionSnapshots))
+        await s.execute(delete(LedgerEntries))
         await s.execute(delete(LotteryWinners))
         await s.execute(delete(LotteryEntries))
         await s.execute(delete(LotteryEvents))
@@ -153,7 +176,10 @@ async def db_cleanup(setup_test_database):
         await s.execute(delete(User))
         await s.execute(delete(BotSettings))
         # Delete custom roles (keep built-in)
-        await s.execute(delete(Role).where(Role.name.notin_(['USER', 'ADMIN', 'OWNER'])))
+        await s.execute(delete(Role).where(Role.name.notin_([
+            'USER', 'CHANNEL_OWNER', 'STATION_OWNER', 'REVIEWER', 'RISK_OPERATOR',
+            'OPERATOR', 'ADMIN', 'OWNER',
+        ])))
 
 
 @pytest.fixture(autouse=True)
@@ -189,6 +215,7 @@ def patch_safe_create_task():
 def patch_env_keys():
     """Provide safe default EnvKeys for tests."""
     patches = {
+        'TOKEN': 'test_token',
         'PAY_CURRENCY': 'RUB',
         'REFERRAL_PERCENT': 10,
         'OWNER_ID': 999999,

@@ -6,12 +6,34 @@ from sqlalchemy import select, update, exists as sa_exists, delete as sa_delete,
 from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import User, ItemValues, Goods, BoughtGoods, Payments, Operations
-from bot.database.models.main import PromoCodes, PromoCodeUsages, CartItems, ReferralEarnings
+from bot.database.models.main import LedgerEntries, PromoCodes, PromoCodeUsages, CartItems, ReferralEarnings
 from bot.database import Database
 from bot.misc import EnvKeys
 from bot.database.methods.read import invalidate_user_cache, invalidate_stats_cache, invalidate_item_cache
 from bot.database.methods.cache_utils import safe_create_task
 from bot.database.methods.audit import log_audit
+
+
+def _ledger_entry(
+        user_id: int,
+        account_type: str,
+        entry_type: str,
+        amount,
+        *,
+        reference_type: str | None = None,
+        reference_id: str | None = None,
+        idempotency_key: str | None = None,
+) -> LedgerEntries:
+    return LedgerEntries(
+        user_id=int(user_id),
+        account_type=account_type,
+        entry_type=entry_type,
+        amount=Decimal(str(amount)).quantize(Decimal("0.01")),
+        status="available",
+        reference_type=reference_type,
+        reference_id=reference_id,
+        idempotency_key=idempotency_key,
+    )
 
 
 async def buy_item_transaction(
@@ -144,6 +166,7 @@ async def buy_item_transaction(
                 # 7. Create a purchase record
                 purchases = []
                 deleted_item_value_ids = set()
+                bought_ids = []
                 for item_value in purchase_values:
                     if not item_value.is_infinity and item_value.id not in deleted_item_value_ids:
                         await s.delete(item_value)
@@ -159,6 +182,7 @@ async def buy_item_transaction(
                     )
                     s.add(bought_item)
                     await s.flush()
+                    bought_ids.append(bought_item.id)
                     purchases.append({
                         "item_name": item_name,
                         "value": item_value.value,
@@ -168,6 +192,15 @@ async def buy_item_transaction(
                         "bought_id": bought_item.id,
                         "bought_datetime": bought_item.bought_datetime.isoformat(),
                     })
+
+                s.add(_ledger_entry(
+                    telegram_id,
+                    "balance",
+                    "purchase_spend",
+                    -total_price,
+                    reference_type="bought_goods",
+                    reference_id=",".join(str(row_id) for row_id in bought_ids),
+                ))
 
                 # 8. Commit the transaction
                 await s.commit()
@@ -281,6 +314,7 @@ async def redeem_item_with_points_transaction(
                 user.points_balance -= total_points
 
                 deleted_item_value_ids = set()
+                bought_ids = []
                 for item_value in unique_values:
                     if not item_value.is_infinity and item_value.id not in deleted_item_value_ids:
                         await s.delete(item_value)
@@ -296,6 +330,7 @@ async def redeem_item_with_points_transaction(
                     )
                     s.add(bought_item)
                     await s.flush()
+                    bought_ids.append(bought_item.id)
                     purchases.append({
                         "item_name": item_name,
                         "value": item_value.value,
@@ -307,6 +342,15 @@ async def redeem_item_with_points_transaction(
                         "bought_datetime": bought_item.bought_datetime.isoformat(),
                         "payment_method": "points",
                     })
+
+                s.add(_ledger_entry(
+                    telegram_id,
+                    "points",
+                    "points_redeem",
+                    -total_points,
+                    reference_type="bought_goods",
+                    reference_id=",".join(str(row_id) for row_id in bought_ids),
+                ))
 
                 await s.commit()
 
@@ -401,6 +445,15 @@ async def process_payment_with_referral(
                 operation_time=datetime.now(timezone.utc)
             )
             s.add(operation)
+            s.add(_ledger_entry(
+                user_id,
+                "balance",
+                "payment_topup",
+                amount,
+                reference_type="payment",
+                reference_id=f"{provider}:{external_id}",
+                idempotency_key=f"payment:{provider}:{external_id}:balance",
+            ))
 
             # 4. Process the referral bonus
             clamped_percent = min(max(referral_percent, 0), 99)
@@ -429,6 +482,15 @@ async def process_payment_with_referral(
                             original_amount=amount
                         )
                         s.add(earning)
+                        s.add(_ledger_entry(
+                            user.referral_id,
+                            "balance",
+                            "referral_bonus",
+                            referral_amount,
+                            reference_type="payment_referral",
+                            reference_id=f"{provider}:{external_id}:{user_id}",
+                            idempotency_key=f"payment:{provider}:{external_id}:referral:{user.referral_id}",
+                        ))
 
             referrer_id = user.referral_id if clamped_percent > 0 else None
 
@@ -584,6 +646,7 @@ async def checkout_cart_transaction(user_id: int) -> tuple[bool, str, list | Non
 
                 # 5. Process each purchase
                 results = []
+                bought_ids = []
                 for p in purchases:
                     if not p['item_value'].is_infinity:
                         await s.delete(p['item_value'])
@@ -598,6 +661,7 @@ async def checkout_cart_transaction(user_id: int) -> tuple[bool, str, list | Non
                     )
                     s.add(bought_item)
                     await s.flush()
+                    bought_ids.append(bought_item.id)
                     results.append({
                         "item_name": p['goods'].name,
                         "value": p['item_value'].value,
@@ -614,6 +678,14 @@ async def checkout_cart_transaction(user_id: int) -> tuple[bool, str, list | Non
 
                 # 7. Deduct total
                 user.balance -= total_price
+                s.add(_ledger_entry(
+                    user_id,
+                    "balance",
+                    "cart_checkout_spend",
+                    -total_price,
+                    reference_type="bought_goods",
+                    reference_id=",".join(str(row_id) for row_id in bought_ids),
+                ))
 
                 # 8. Clear cart
                 await s.execute(
@@ -684,6 +756,16 @@ async def admin_balance_change(telegram_id: int, amount: Decimal) -> tuple[bool,
                 operation_time=datetime.now(timezone.utc)
             )
             s.add(operation)
+            await s.flush()
+            s.add(_ledger_entry(
+                telegram_id,
+                "balance",
+                "admin_adjustment",
+                amount,
+                reference_type="operation",
+                reference_id=str(operation.id),
+                idempotency_key=f"operation:{operation.id}:balance",
+            ))
 
             await s.commit()
 
@@ -757,6 +839,15 @@ async def redeem_balance_promo(code: str, user_id: int) -> tuple[bool, str, Deci
                 user_id=user_id,
                 operation_value=amount,
                 operation_time=datetime.now(timezone.utc),
+            ))
+            s.add(_ledger_entry(
+                user_id,
+                "balance",
+                "balance_promo",
+                amount,
+                reference_type="promo_code",
+                reference_id=str(promo.id),
+                idempotency_key=f"promo:{promo.id}:user:{user_id}:balance",
             ))
 
             await s.commit()

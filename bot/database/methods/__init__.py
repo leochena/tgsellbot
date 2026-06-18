@@ -8,3 +8,4 @@ from bot.database.methods.cache_utils import *
 from bot.database.methods.engagement import *
 from bot.database.methods.group_invites import *
 from bot.database.methods.audit import log_audit
+from bot.database.methods.platform import *

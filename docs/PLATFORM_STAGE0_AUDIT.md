@@ -1,0 +1,332 @@
+# TGSellBot AI Platform Stage 0 Audit
+
+Date: 2026-06-17
+
+This audit converts `tgsellbot_AI频道与模型验证平台升级开发计划书_v1.0.docx` into an executable backend foundation plan for the current repository.
+
+## Current Capabilities
+
+- Users: `users.telegram_id` is the primary user id, with role, balance, points, locale, first referral, registration date, and block status.
+- Shop and delivery: categories, goods, item values, cart items, bought goods, promo codes, reviews, and JSON delivery are already modeled.
+- Payments: `payments(provider, external_id)` has a uniqueness constraint for idempotency. Telegram Stars, provider-token checkout, and CryptoPay are represented in service code.
+- Balance operations: top-ups, purchases, admin balance changes, and balance promo redemption update `users.balance` and `operations`.
+- Points: check-in, group invites, lotteries, and points redemption update `users.points_balance`.
+- Invites: group invite links and rewards exist, but historical rewards were immediate after check-in rather than 72h/7d matured.
+- Roles: current permission bitmask covers user/admin/shop/stats/balance/promo operations. Domain roles such as channel owner, station owner, reviewer, risk operator, and content operator should be implemented as custom roles first, with new bits only when access gates need them.
+- Admin: SQLAdmin plus custom Product Operations page are present. Financial/payment/audit tables are read-only in generic admin views.
+- Deployment: Docker, systemd template, Windows local admin runner, Webhook mode, Redis option, PostgreSQL schema support, health/metrics endpoints, and CSV exports exist.
+
+## Gaps Blocking Full P0
+
+- Append-only ledger foundations now cover balance and points opening entries, dry-run preview, idempotent execution, and reconciliation. Existing fields remain the source of truth until the dry-run/execution/reconcile loop is rehearsed against a production-like database copy.
+- The user-facing channel directory is now usable at Mini App P0 depth: discovery, search, category/language filters, pagination, submit, public detail view, favorite/hide/report interactions, and constrained owner-claim creation are wired. Public detail now shows recent submission, claim, and audit-trail context without leaking raw claim challenges or internal risk notes. Claim creation now shows one-time verification instructions/expected text in the Mini App after submission; public detail still redacts raw claim challenges. Verified channel owners can update the public title, category, language, and description through viewer-scoped Mini App detail forms/API without changing ownership, review status, or risk state. Admin claim queues include verification context for `bot_admin`, `challenge`, and `manual` methods. Channel report triage now records reviewer, notes, assignment, escalation, and reviewed time without exposing internal notes through public discovery. The admin review workspace now has a channel detail panel with internal risk notes, report summary, interactions, submission history, claim history, and audit trail. Review workload summary now tracks open channel-report and relay-feedback assignments, unassigned backlog, urgent escalation, reviewer load, and threshold alerts. Admin audit-log filters now exist for read-only session-gated review. Reviewer roles and live Bot-admin verification are still pending.
+- The user-facing relay/provider directory now has a Mini App P0 slice: approved provider discovery, protocol/region filters, pagination, redacted public URL display, detail view, domain claim creation with verification instructions, inline rating/complaint forms, and viewer-scoped owner profile forms. Public relay detail now shows recent approved feedback, claim history, and audit-trail context without leaking raw claim challenges or internal follow-up conclusions. Verified relay owners can update public name, website, protocol label, model scope, region, and pricing through Mini App/API; endpoint normalized value/hash, owner, review status, and risk state are not owner-editable. Admin relay claim queues include verification context for `domain`, `challenge`, and `manual` methods. Domain claims now require HTTPS `.well-known/tgsellbot-relay-claim.txt` proof with public-DNS revalidation, no redirects, response-size limits, and expected-text matching before approval. Relay feedback/complaint triage records reviewer, notes, assignment, escalation, reviewed time, outcome, follow-up notes, and resolved metadata with outcome filtering. The admin review workspace now has a relay provider detail panel with provider profile, claim history, feedback summary, and audit trail. Mini App owner dashboard foundation now lists verified-owner channels and relay providers with public-safe interaction, feedback, latest claim, and submission status metrics. SQLAdmin/operator owner dashboard foundation now aggregates owner-scoped channel/relay counts, status/risk distribution, interactions, feedback, average rating, and recent public-safe resources; reviewer-role filters remain pending while workload thresholds and audit filters now have baseline implementations.
+- Model Lab orchestration tables, job status reads, private report reads, user-scoped report lists, owner-controlled visibility changes, public report lists, token-gated unlisted report reads, recent run history, and an operator batch drain command now exist. Mini App report detail now separates score badges, job/report timeline, worker run history, visibility meaning, limitation copy, redacted evidence summary, and share-link controls instead of dumping raw JSON. Production scheduler wiring and Worker deployment isolation still need release wiring.
+- An isolated Model Lab Worker skeleton now exists as `bot/model_lab/worker.py` plus `scripts/platform_worker.py`. It performs runtime SSRF checks, DNS revalidation, bounded OpenAI-compatible and Anthropic-compatible probes, and redacted report assembly without importing the main database or persisting API keys. Dispatcher paths can claim `model_test_jobs`, pass one-time keys to the isolated Worker through stdin, and write back redacted reports. The batch drain path matches ephemeral local key manifests by irreversible fingerprint and does not persist raw keys.
+- Mini App authentication foundation is implemented for user-facing platform API endpoints through signed Telegram `initData`. A minimal P0 Mini App page now exists for channel discovery/submission/detail, channel and relay owner profile updates, relay submission, relay directory/detail, model-test job creation/status, private report viewing with structured summaries, visibility switching across private/unlisted/public modes, share-link creation, contribution entry points, and ledger viewing; full production UX is still pending.
+- A read-only admin dashboard foundation now aggregates current channel, relay, Model Lab, ledger, invite-retention, fraud-event counts, Model Lab run samples, and relay availability samples from existing tables. Cost, latency, and relay availability stay explicitly unavailable until real samples are recorded.
+- Webhook idempotency is not recorded beyond business idempotency in payments and some purchase/reward paths.
+
+## New Foundation Added In This Iteration
+
+- Repository governance files: `CLAUDE.md`, `AGENTS.md`, `ARCHITECTURE.md`, `TESTING.md`, `CI_STATUS.md`.
+- Feature flags stored in `bot_settings`:
+  - `platform_menu_enabled`
+  - `platform_api_enabled`
+  - `platform_webapp_url`
+- Data foundation:
+  - ledger entries,
+  - channel records, submissions, claims, and interactions,
+  - relay providers, claims, and feedback,
+  - test suites, model test jobs, and reports,
+  - fraud events,
+  - matured invite fields on existing group invite rewards,
+  - invite-retention snapshots.
+- Service foundation:
+  - channel username normalization and submission,
+  - channel discovery, public detail reads, and interactions,
+  - channel and relay claim creation plus review approval paths,
+  - verified owner profile update paths for public channel and relay metadata without allowing owner-side endpoint/hash/status/risk mutation,
+  - relay domain-claim ownership verification through a bounded HTTPS well-known proof fetch before approval,
+  - admin-only channel submission queues and review transitions,
+  - relay URL normalization, submission, public discovery, and detail reads,
+  - admin-only relay provider, claim, and feedback review queues,
+  - model-test job creation with API-key fingerprint/mask only,
+  - model-test job claim/complete/fail lifecycle helpers,
+  - one-shot Model Lab dispatcher that invokes the isolated Worker without putting API keys in command-line arguments,
+  - operator batch drain command for claimable Model Lab jobs using an ephemeral JSON key manifest,
+  - model-test job status reads, report creation, report reads, public/unlisted report entry points, recent run history, and visibility changes with limitation wording plus Mini App report summary/timeline/run-history/share-link rendering,
+  - owner dashboard API and Mini App contribution-tab summary for verified owner channels and relay providers without raw claim challenges, internal risk notes, or relay endpoint hash/normalized values,
+  - durable Model Lab run samples for worker status, duration, request count, token count, optional cost, and redacted failure summary,
+  - durable relay availability samples from Model Lab runs or operator checks with status, HTTP status, latency, and redacted error summary,
+  - SSRF-oriented HTTPS URL safety checks,
+  - sensitive query parameters such as `api_key`, `token`, `secret`, and `password` are rejected before URL persistence,
+  - SQLAdmin Platform Review workspace for channel submissions, channel claims, channel report detail history, relay providers, relay provider detail history, relay claims, relay feedback, a dedicated relay complaint queue, assignment/escalation capture for channel report triage, and outcome/follow-up capture for relay feedback plus complaints,
+  - admin-only Platform Dashboard tab and API with current aggregate counts, real run/availability metric aggregation, and explicit unavailable metric coverage when samples are absent,
+  - admin-only owner dashboard tab and API with owner-scoped channel/relay status, risk, interaction, feedback, average-rating, and recent-resource summaries,
+  - admin-only review workload tab and API with open assignment totals, unassigned backlog, urgent escalation count, per-reviewer load, and threshold alerts for current channel-report and relay-feedback queues,
+  - admin-only audit logs tab and API with read-only filters for level, action, resource type, resource id, user id, and free-text search; details are redacted before JSON/HTML rendering and IP addresses are not exposed,
+  - invite-retention snapshot capture for invite-related activity plus dashboard/admin readout,
+- invite reward review queues for qualified, risky, and rejected rewards with audited reviewer transitions,
+- settled invite rewards can now be reversed once by admin review when later rejected or risk-blocked,
+- inviter-facing reward status history with masked invited-user ids, delayed settlement status, public rejection/risk reasons, pagination, one-click appeal creation for risk/rejected rewards, and duplicate-appeal throttling while a matching appeal is open or under review,
+  - systemd `invite-settle` service/timer templates plus operations runbook for hourly mature reward settlement,
+  - user appeal event capture plus admin fraud-event queue and review status transitions,
+  - Telegram Mini App entry page at `/platform/app` with channel discovery filters, channel detail view, relay directory filters, relay detail view, interactions, claim creation with verification guidance, and viewer-scoped owner profile forms,
+  - optional Bot menu WebApp buttons when `platform_webapp_url` is configured,
+  - ledger balance and entry query helpers,
+  - idempotent opening ledger backfill and reconciliation,
+  - invite qualification plus mature settlement after the freeze/7-day windows.
+
+## Public Interface Slice Added
+
+All endpoints are feature-flagged by `platform_api_enabled`. User-facing
+endpoints accept signed Telegram Mini App `initData` through
+`X-Telegram-Init-Data`, derive the actor id server-side, and reject cross-user
+access. Admin review endpoints still require the existing admin web session.
+
+- `GET /admin/platform/review`
+- `GET /admin/platform/review/app`
+- `GET /platform/app`
+- `GET /platform/reports`
+- `GET /platform/reports/{report_id}`
+- `GET /platform/api/users/{user_id}/ledger`
+- `GET /platform/api/owner/dashboard`
+- `POST /platform/api/channels/submissions`
+- `GET /platform/api/channels/discover`
+- `GET /platform/api/channels/{channel_id}`
+- `GET /platform/api/admin/channels/submissions`
+- `GET /platform/api/admin/channels/{channel_id}`
+- `POST /platform/api/admin/channels/submissions/{submission_id}/review`
+- `POST /platform/api/channels/{channel_id}/interactions`
+- `POST /platform/api/channels/{channel_id}/claim`
+- `POST /platform/api/channels/{channel_id}/owner-profile`
+- `GET /platform/api/admin/channel-claims`
+- `POST /platform/api/channel-claims/{claim_id}/review`
+- `POST /platform/api/relays`
+- `GET /platform/api/relays/discover`
+- `GET /platform/api/relays/{provider_id}`
+- `GET /platform/api/admin/relays`
+- `GET /platform/api/admin/relays/{provider_id}`
+- `POST /platform/api/admin/relays/{provider_id}/review`
+- `POST /platform/api/relays/{provider_id}/claim`
+- `POST /platform/api/relays/{provider_id}/owner-profile`
+- `GET /platform/api/admin/relay-claims`
+- `POST /platform/api/relay-claims/{claim_id}/review`
+- `POST /platform/api/relays/{provider_id}/feedback`
+- `GET /platform/api/admin/relay-feedback`
+- `POST /platform/api/admin/relay-feedback/{feedback_id}/review`
+- `GET /platform/api/admin/dashboard`
+- `GET /platform/api/admin/owners/dashboard`
+- `GET /platform/api/admin/review-workload`
+- `GET /platform/api/admin/audit-logs`
+- `POST /platform/api/users/{user_id}/appeals`
+- `GET /platform/api/admin/fraud-events`
+- `GET /platform/api/admin/invite-retention`
+- `GET /platform/api/admin/invite-rewards`
+- `POST /platform/api/admin/invite-rewards/{reward_id}/review`
+- `POST /platform/api/admin/fraud-events/{event_id}/review`
+- `POST /platform/api/relay-tests`
+- `GET /platform/api/relay-tests`
+- `GET /platform/api/relay-tests/{job_id}`
+- `POST /platform/api/relay-tests/{job_id}/reports`
+- `GET /platform/api/reports`
+- `GET /platform/api/reports/{report_id}`
+- `POST /platform/api/reports/{report_id}/visibility`
+- `GET /platform/api/public/reports`
+- `GET /platform/api/public/reports/{report_id}`
+
+## Operator Commands
+
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py ledger-opening --dry-run --limit 1000 --offset 0`
+  previews idempotent opening ledger entries for current balances and points without writing ledger rows.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py ledger-opening --limit 1000 --offset 0`
+  creates the previewed idempotent opening ledger entries.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py ledger-reconcile --limit 1000 --offset 0`
+  compares `users.balance` / `users.points_balance` with available ledger totals.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py invite-settle --limit 100`
+  credits mature qualified invite rewards. Rewards remain pending until both the
+  72-hour freeze and 7-day settlement window have elapsed.
+- `Get-Content .\one-time-key.txt | .\.venv312\Scripts\python.exe scripts\platform_ops.py model-test-run <job_id>`
+  claims one model-test job, sends the one-time API key to the isolated Worker
+  through stdin, and writes back a redacted private report. Do not pass keys on
+  the command line.
+- `Get-Content .\model-test-keys.json | .\.venv312\Scripts\python.exe scripts\platform_ops.py model-test-drain --limit 10`
+  scans claimable `created`, `queued`, and `failed` model-test jobs, matches the
+  local one-time key manifest by fingerprint, runs only jobs with a matching
+  ephemeral key, and returns redacted job/report ids. Do not commit or log the
+  manifest file.
+- Configure `platform_webapp_url` to the public HTTPS `/platform/app` URL before
+  enabling Mini App buttons. With an empty value, feature-flagged platform menu
+  entries fall back to safe Bot placeholder messages.
+  Unsafe URLs fall back to callback buttons automatically.
+
+## Sprint Backlog
+
+1. Ledger migration rehearsal
+   - Run `ledger-opening --dry-run`, `ledger-opening`, then `ledger-reconcile` against a production-like database copy.
+   - Preserve the dry-run preview, execution result, and mismatch report as migration evidence.
+   - Keep existing fields as read source until reconciliation passes.
+
+2. Invite maturity
+   - Enable the new `deploy/systemd/tgsellbot-invite-settle.timer` in production after migrations and a manual settlement pass.
+   - Confirm the operator-facing reinstatement workflow for rewards that were settled, later reversed, and then cleared again.
+   - Monitor reward-history appeal volume and tune escalation thresholds if operators still see noisy repeated submissions.
+
+3. Channel center P0
+   - Harden the current Mini App submit/find/detail flows with richer empty states and report detail screens.
+   - Extend the current SQLAdmin Platform Review workspace with reviewer roles. Audit filters and the channel report detail/history panel now exist for internal review.
+   - Expand channel report triage with moderation history. Review workload summary and baseline threshold alerts now exist for channel reports and relay feedback.
+   - Add live ownership verification through Bot admin permissions and challenge messages. Current API supports constrained `bot_admin`, `challenge`, and `manual` claim records plus admin-visible verification evidence.
+
+4. Relay directory P0
+   - Harden the current Mini App station directory with complaint follow-up workflows.
+   - Extend the current SQLAdmin Platform Review workspace with reviewer role filters. Mini App and SQLAdmin owner dashboard foundations now exist for verified channel/relay owners; complaint follow-up outcome tracking, audit filters, and workload threshold summaries now exist for relay feedback and complaint queues.
+   - Expand public profiles with richer owner-managed editorial fields after owner verification is production-ready.
+
+5. Model Lab P0
+   - Move the current operator batch drain into scheduled production wiring after deployment isolation is enforced.
+   - Harden the current Mini App report screens with production-grade sharing flows once Worker scheduler evidence exists. Current public/unlisted report entry points are read-only and redacted; `unlisted` links require the generated share token and do not appear in the public report list. Recent Model Lab run history is now shown on owner job/report details and public report detail without exposing API keys or owner ids.
+   - Keep network controls, timeout/size/token limits, and redirect revalidation enforced in deployment.
+   - Extend protocol coverage and report scoring as additional compatibility cases are verified.
+
+6. Mini App authentication
+   - Complete production-grade Mini App UI flows beyond the current P0 form shell.
+   - Add endpoint groups for public read, authenticated user, owner, reviewer, and admin operations.
+   - Keep admin moderation endpoints behind SQLAdmin session or role-gated auth.
+
+7. Stage 5 dashboard hardening
+   - Extend the new durable Model Lab run and relay availability samples with scheduled collection and retention policy.
+   - Extend invite-retention, ban, and appeal dashboard views with stable operating thresholds and reviewer assignments.
+   - Replace unavailable dashboard placeholders only after the corresponding storage and collection path exists. Model Lab cost remains unavailable unless run samples include explicit cost estimates.
+   - Promote baseline review workload threshold alerts into configurable operating policy once metrics have stable semantics.
+
+## Risk Register
+
+- API key leakage: mitigated in foundation by refusing chat collection in UI copy, storing only fingerprint/mask in job records, passing one-time Worker keys through request body/stdin only, and recursively redacting reports/failure reasons.
+- SSRF: mitigated by `url_safety.py` plus the isolated Worker's runtime DNS and redirect revalidation, but deployment isolation still needs to be enforced outside the codebase.
+- Accounting drift: ledger is introduced but not yet authoritative. Reconciliation must precede any source-of-truth switch.
+- Menu overload: new platform menu entries are feature-flagged off by default.
+- False model claims: report limitation wording is required by default.
+- Public API auth: user endpoints validate Telegram Mini App `initData`; admin review endpoints remain admin-session gated. Future work still needs owner/reviewer role gates and a real Mini App client.
+
+## Verification Record
+
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py --help` passed.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_model_lab_worker.py tests\test_platform_ops.py -q` passed: 16 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 33 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py tests\test_platform_api.py tests\test_platform_foundation.py -q` passed: 51 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 7 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py tests\test_keyboards.py -q` passed: 57 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 610 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py tests\test_platform_api.py -q` passed: 34 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_keyboards.py tests\test_group_invites.py tests\test_platform_api.py -q` passed: 78 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 615 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py -q` passed: 22 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_keyboards.py tests\test_group_invites.py tests\test_platform_api.py -q` passed: 82 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 619 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py -q` passed: 42 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 619 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py -q` passed: 19 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py -q` passed: 43 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 620 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestLedgerFoundation tests\test_platform_ops.py::TestPlatformOpsScript -q` passed: 10 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 51 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 621 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py tests\test_platform_api.py -q` passed: 42 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py tests\test_platform_api.py tests\test_keyboards.py tests\test_admin_i18n.py -q` passed: 93 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 622 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestChannelFoundation tests\test_platform_api.py::TestPlatformAPI::test_mini_app_api_discovers_filters_pages_and_claims_channel tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 7 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py -q` passed: 45 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 623 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_claim_approval_sets_owner tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_claim_verification_context_is_admin_only tests\test_platform_api.py::TestPlatformAPI::test_mini_app_api_discovers_and_reads_relay_directory tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 4 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py -q` passed: 46 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 624 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestChannelFoundation::test_channel_report_queue_updates_risk_and_blocks_discovery tests\test_platform_api.py::TestPlatformAPI::test_admin_session_can_filter_and_triage_relay_complaints tests\test_platform_api.py::TestPlatformAPI::test_admin_session_can_triage_channel_reports tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 4 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 53 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py::TestGroupInviteMethods::test_invite_retention_activity_is_idempotent_for_same_snapshot -q` passed: 1 test.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 624 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_claim_approval_sets_owner tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_claim_verification_context_is_admin_only tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_domain_claim_requires_well_known_proof_before_approval tests\test_platform_api.py::TestPlatformAPI::test_admin_api_requires_domain_claim_proof_before_approval -q` passed: 4 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 55 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 626 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py::TestPlatformAPI::test_admin_api_reads_relay_provider_detail_history tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 2 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 56 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_feedback_review_tracks_internal_outcome_without_public_leak tests\test_platform_api.py::TestPlatformAPI::test_admin_session_can_filter_and_triage_relay_complaints -q` passed: 2 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 57 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 628 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestChannelFoundation::test_channel_admin_detail_includes_report_history_without_public_leak tests\test_platform_api.py::TestPlatformAPI::test_admin_api_reads_channel_report_detail_history tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 3 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 59 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 630 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestChannelFoundation::test_channel_owner_profile_update_is_owner_scoped tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_owner_profile_update_keeps_base_url_and_hash_stable tests\test_platform_api.py::TestPlatformAPI::test_channel_owner_profile_api_requires_verified_owner tests\test_platform_api.py::TestPlatformAPI::test_relay_owner_profile_api_requires_verified_owner_and_keeps_endpoint_stable -q` passed: 4 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestChannelFoundation::test_channel_owner_profile_update_is_owner_scoped tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_relay_owner_profile_update_keeps_base_url_and_hash_stable tests\test_platform_api.py::TestPlatformAPI::test_channel_owner_profile_api_requires_verified_owner tests\test_platform_api.py::TestPlatformAPI::test_relay_owner_profile_api_requires_verified_owner_and_keeps_endpoint_stable tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints -q` passed: 5 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 63 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 63 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 634 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints tests\test_platform_api.py::TestPlatformAPI::test_mini_app_api_discovers_filters_pages_and_claims_channel tests\test_platform_api.py::TestPlatformAPI::test_mini_app_api_discovers_and_reads_relay_directory -q` passed: 3 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints tests\test_platform_api.py::TestPlatformAPI::test_mini_app_api_reads_model_test_job_and_report_by_owner -q` passed: 2 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints -q` passed: 1 test.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py::TestPlatformAPI::test_public_model_report_entries_are_visibility_scoped_and_redacted tests\test_platform_api.py::TestPlatformAPI::test_mini_app_api_reads_model_test_job_and_report_by_owner tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints tests\test_platform_api.py::TestPlatformAPI::test_public_report_page_uses_public_api_without_telegram_init_data -q` passed: 4 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 65 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 636 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_owner_dashboard_lists_only_owned_resources_with_public_metrics tests\test_platform_api.py::TestPlatformAPI::test_owner_dashboard_api_is_mini_app_user_scoped tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints -q` passed: 3 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 67 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 638 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_admin_review_workload_metrics_track_assignments_thresholds_and_alerts tests\test_platform_api.py::TestPlatformAPI::test_admin_review_workload_is_session_only_and_reports_assignments tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 3 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 69 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 640 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_owner_dashboard_lists_only_owned_resources_with_public_metrics tests\test_platform_api.py::TestPlatformAPI::test_owner_dashboard_api_is_mini_app_user_scoped tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 3 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 67 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 638 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- After fixing the public report page `renderRunHistory` definition, the focused Model Lab report-history tests, platform group, `compileall`, full `pytest -q` (636 tests), and `git diff --check` were rerun successfully; `git diff --check` still reports only Windows LF-to-CRLF working-copy warnings.
+- Temporary local HTTP smoke for `http://127.0.0.1:9191/platform/reports` returned 200 with the `TGSellBot Model Lab Report` page content; the in-app browser webview attach timed out before DOM sampling, so browser-level visual QA was not completed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_platform_audit_logs_filter_page_and_redact_sensitive_details tests\test_platform_api.py::TestPlatformAPI::test_admin_audit_logs_are_session_only_filtered_and_redacted tests\test_platform_api.py::TestPlatformAPI::test_platform_review_app_requires_admin_session_and_uses_admin_review_api -q` passed: 3 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 71 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 642 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py::TestRelayAndModelLabFoundation::test_model_test_dispatcher_runs_once_and_marks_failure tests\test_platform_api.py::TestPlatformAPI::test_public_model_report_entries_are_visibility_scoped_and_redacted tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints tests\test_platform_api.py::TestPlatformAPI::test_public_report_page_uses_public_api_without_telegram_init_data -q` passed: 4 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 65 tests.
+- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 636 tests.
+- `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.

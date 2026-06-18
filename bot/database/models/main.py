@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy import (
     Column, Integer, String, BigInteger, ForeignKey, Text, Boolean,
-    DateTime, Numeric, Index, UniqueConstraint, CheckConstraint, func, select, text
+    DateTime, Numeric, Index, UniqueConstraint, CheckConstraint, func, select, text, JSON
 )
 from bot.database.main import Database
 from sqlalchemy.orm import relationship
@@ -52,6 +52,11 @@ class Role(Database.BASE):
     async def insert_roles():
         roles = {
             'USER': [Permission.USE],
+            'CHANNEL_OWNER': [Permission.USE],
+            'STATION_OWNER': [Permission.USE],
+            'REVIEWER': [Permission.USE, Permission.USERS_MANAGE, Permission.STATS_VIEW],
+            'RISK_OPERATOR': [Permission.USE, Permission.USERS_MANAGE, Permission.STATS_VIEW],
+            'OPERATOR': [Permission.USE, Permission.BROADCAST, Permission.USERS_MANAGE, Permission.STATS_VIEW],
             'ADMIN': [Permission.USE, Permission.BROADCAST,
                       Permission.SETTINGS_MANAGE, Permission.USERS_MANAGE,
                       Permission.CATALOG_MANAGE, Permission.STATS_VIEW,
@@ -389,14 +394,20 @@ class GroupInviteRewards(Database.BASE):
     chat_id = Column(String(64), nullable=False, index=True)
     invite_link = Column(String(512), nullable=True)
     joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    status = Column(String(32), nullable=False, default='active', index=True)
+    pending_until = Column(DateTime(timezone=True), nullable=True, index=True)
+    qualified_at = Column(DateTime(timezone=True), nullable=True)
     rewarded_at = Column(DateTime(timezone=True), nullable=True)
     points_awarded = Column(Integer, nullable=False, default=0)
+    risk_score = Column(Integer, nullable=False, default=0)
+    risk_reason = Column(Text, nullable=False, default='')
 
     __table_args__ = (
         UniqueConstraint('invited_id', 'chat_id', name='uq_group_invite_reward_invited_chat'),
         CheckConstraint('inviter_id != invited_id', name='ck_group_invite_reward_no_self'),
         Index('ix_group_invite_rewards_pending', 'chat_id', 'invited_id', 'rewarded_at'),
         Index('ix_group_invite_rewards_inviter_joined', 'inviter_id', 'joined_at'),
+        Index('ix_group_invite_rewards_status_pending', 'status', 'pending_until'),
     )
 
 
@@ -449,6 +460,18 @@ class BotSettings(Database.BASE):
                 "value": "",
                 "description": "Optional Russian rules text shown above the built-in user trading guide.",
             },
+            "platform_menu_enabled": {
+                "value": "0",
+                "description": "Feature flag for AI channel discovery, contribution tasks, and Model Lab bot menu entries.",
+            },
+            "platform_api_enabled": {
+                "value": "0",
+                "description": "Feature flag for platform API endpoints used by the Mini App and admin console.",
+            },
+            "platform_webapp_url": {
+                "value": "",
+                "description": "Public HTTPS URL for the Telegram Mini App entry, usually https://your-domain/platform/app.",
+            },
         }
         async with Database().session() as s:
             for key, data in defaults.items():
@@ -487,6 +510,27 @@ class CheckIns(Database.BASE):
     __table_args__ = (
         UniqueConstraint('user_id', 'checkin_date', name='uq_checkins_user_date'),
         Index('ix_checkins_date', 'checkin_date'),
+    )
+
+
+class InviteRetentionSnapshots(Database.BASE):
+    __tablename__ = 'invite_retention_snapshots'
+    id = Column(Integer, primary_key=True)
+    reward_id = Column(Integer, ForeignKey('group_invite_rewards.id', ondelete='CASCADE'), nullable=False, index=True)
+    inviter_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    invited_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    chat_id = Column(String(64), nullable=False, index=True)
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    window_end = Column(DateTime(timezone=True), nullable=False, index=True)
+    activity_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    activity_type = Column(String(32), nullable=False, default='checkin', index=True)
+    retained_7d = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('reward_id', 'activity_type', 'activity_at', name='uq_invite_retention_reward_activity'),
+        Index('ix_invite_retention_inviter_activity', 'inviter_id', 'activity_at'),
+        Index('ix_invite_retention_window_retained', 'window_end', 'retained_7d'),
     )
 
 
@@ -538,6 +582,273 @@ class LotteryWinners(Database.BASE):
         UniqueConstraint('event_id', 'user_id', 'goods_id', name='uq_lottery_winner_event_user_goods'),
         Index('ix_lottery_winners_event_level', 'event_id', 'prize_level'),
     )
+
+
+class LedgerEntries(Database.BASE):
+    __tablename__ = 'ledger_entries'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    account_type = Column(String(16), nullable=False, index=True)  # balance | points
+    entry_type = Column(String(64), nullable=False, index=True)
+    amount = Column(Numeric(14, 2), nullable=False)
+    status = Column(String(16), nullable=False, default='available', index=True)
+    reference_type = Column(String(64), nullable=True, index=True)
+    reference_id = Column(String(128), nullable=True, index=True)
+    idempotency_key = Column(String(128), nullable=True, unique=True)
+    available_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    reversed_id = Column(Integer, ForeignKey('ledger_entries.id', ondelete='SET NULL'), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("account_type IN ('balance', 'points')", name='ck_ledger_account_type'),
+        CheckConstraint("status IN ('pending', 'available', 'spent', 'reversed', 'expired')", name='ck_ledger_status'),
+        Index('ix_ledger_user_account_created', 'user_id', 'account_type', 'created_at'),
+        Index('ix_ledger_reference', 'reference_type', 'reference_id'),
+    )
+
+
+class Channels(Database.BASE):
+    __tablename__ = 'channels'
+    id = Column(Integer, primary_key=True)
+    telegram_chat_id = Column(BigInteger, nullable=True, unique=True)
+    username = Column(String(64), nullable=False, unique=True, index=True)
+    title = Column(String(255), nullable=False, default='')
+    category = Column(String(64), nullable=False, index=True)
+    language = Column(String(16), nullable=False, index=True)
+    description = Column(Text, nullable=False, default='')
+    owner_user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True, index=True)
+    quality_score = Column(Numeric(6, 2), nullable=False, default=0)
+    risk_status = Column(String(32), nullable=False, default='normal', index=True)
+    risk_notes = Column(Text, nullable=False, default='')
+    risk_reviewed_by = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True)
+    risk_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    risk_assigned_to = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True, index=True)
+    risk_escalation = Column(String(32), nullable=False, default='none', index=True)
+    status = Column(String(32), nullable=False, default='submitted', index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index('ix_channels_category_language_status', 'category', 'language', 'status'),
+    )
+
+
+class ChannelSubmissions(Database.BASE):
+    __tablename__ = 'channel_submissions'
+    id = Column(Integer, primary_key=True)
+    submitter_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    channel_id = Column(Integer, ForeignKey('channels.id', ondelete='CASCADE'), nullable=False, index=True)
+    reason = Column(Text, nullable=False, default='')
+    commercial_content = Column(String(32), nullable=False, default='unknown')
+    submitter_relation = Column(String(32), nullable=False, default='recommender')
+    status = Column(String(32), nullable=False, default='submitted', index=True)
+    review_notes = Column(Text, nullable=False, default='')
+    reviewed_by = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('submitter_id', 'channel_id', name='uq_channel_submission_submitter_channel'),
+        Index('ix_channel_submissions_status_created', 'status', 'created_at'),
+    )
+
+
+class ChannelClaims(Database.BASE):
+    __tablename__ = 'channel_claims'
+    id = Column(Integer, primary_key=True)
+    channel_id = Column(Integer, ForeignKey('channels.id', ondelete='CASCADE'), nullable=False, index=True)
+    claimant_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    method = Column(String(32), nullable=False)
+    challenge = Column(String(128), nullable=False, default='')
+    status = Column(String(32), nullable=False, default='pending', index=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'claimant_id', 'status', name='uq_channel_claim_open_status'),
+    )
+
+
+class ChannelInteractions(Database.BASE):
+    __tablename__ = 'channel_interactions'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    channel_id = Column(Integer, ForeignKey('channels.id', ondelete='CASCADE'), nullable=False, index=True)
+    action = Column(String(32), nullable=False, index=True)
+    source = Column(String(64), nullable=False, default='')
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'channel_id', 'action', name='uq_channel_interaction_user_channel_action'),
+        Index('ix_channel_interactions_channel_action', 'channel_id', 'action'),
+    )
+
+
+class RelayProviders(Database.BASE):
+    __tablename__ = 'relay_providers'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(128), nullable=False, index=True)
+    website_url = Column(String(512), nullable=False, default='')
+    base_url_normalized = Column(String(512), nullable=False)
+    base_url_hash = Column(String(64), nullable=False, unique=True, index=True)
+    public_base_url = Column(String(512), nullable=False, default='')
+    owner_user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True, index=True)
+    protocol = Column(String(32), nullable=False, index=True)
+    model_scope = Column(Text, nullable=False, default='')
+    region = Column(String(64), nullable=False, default='')
+    pricing = Column(Text, nullable=False, default='')
+    status = Column(String(32), nullable=False, default='submitted', index=True)
+    reputation_score = Column(Numeric(6, 2), nullable=False, default=0)
+    risk_status = Column(String(32), nullable=False, default='new', index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index('ix_relay_providers_protocol_status', 'protocol', 'status'),
+    )
+
+
+class RelayClaims(Database.BASE):
+    __tablename__ = 'relay_claims'
+    id = Column(Integer, primary_key=True)
+    provider_id = Column(Integer, ForeignKey('relay_providers.id', ondelete='CASCADE'), nullable=False, index=True)
+    claimant_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    method = Column(String(32), nullable=False)
+    challenge = Column(String(128), nullable=False, default='')
+    status = Column(String(32), nullable=False, default='pending', index=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class RelayFeedback(Database.BASE):
+    __tablename__ = 'relay_feedback'
+    id = Column(Integer, primary_key=True)
+    provider_id = Column(Integer, ForeignKey('relay_providers.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    feedback_type = Column(String(32), nullable=False, index=True)  # rating | complaint | owner_response
+    rating = Column(Integer, nullable=True)
+    text = Column(Text, nullable=False, default='')
+    status = Column(String(32), nullable=False, default='submitted', index=True)
+    review_notes = Column(Text, nullable=False, default='')
+    reviewed_by = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    assigned_to = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True, index=True)
+    escalation = Column(String(32), nullable=False, default='none', index=True)
+    outcome = Column(String(32), nullable=False, default='none', index=True)
+    followup_notes = Column(Text, nullable=False, default='')
+    resolved_by = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='SET NULL'), nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint('rating IS NULL OR (rating >= 1 AND rating <= 5)', name='ck_relay_feedback_rating_range'),
+    )
+
+
+class TestSuites(Database.BASE):
+    __tablename__ = 'test_suites'
+    id = Column(Integer, primary_key=True)
+    version = Column(String(64), nullable=False, unique=True, index=True)
+    protocol = Column(String(32), nullable=False, index=True)
+    items = Column(JSON, nullable=False, default=list)
+    enabled_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ModelTestJobs(Database.BASE):
+    __tablename__ = 'model_test_jobs'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete='CASCADE'), nullable=False, index=True)
+    provider_id = Column(Integer, ForeignKey('relay_providers.id', ondelete='SET NULL'), nullable=True, index=True)
+    endpoint_hash = Column(String(64), nullable=False, index=True)
+    endpoint_normalized = Column(String(512), nullable=False)
+    endpoint_public = Column(String(512), nullable=False, default='')
+    protocol = Column(String(32), nullable=False, index=True)
+    requested_model = Column(String(128), nullable=False, default='')
+    status = Column(String(32), nullable=False, default='created', index=True)
+    worker_id = Column(String(64), nullable=False, default='')
+    idempotency_key = Column(String(128), nullable=False, unique=True)
+    key_fingerprint = Column(String(64), nullable=False, default='')
+    key_masked = Column(String(64), nullable=False, default='')
+    failure_reason = Column(String(255), nullable=False, default='')
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index('ix_model_test_jobs_user_status_created', 'user_id', 'status', 'created_at'),
+    )
+
+
+class ModelTestReports(Database.BASE):
+    __tablename__ = 'model_test_reports'
+    id = Column(Integer, primary_key=True)
+    job_id = Column(Integer, ForeignKey('model_test_jobs.id', ondelete='CASCADE'), nullable=False, unique=True)
+    declared_model = Column(String(128), nullable=False, default='')
+    returned_model = Column(String(128), nullable=False, default='')
+    suite_version = Column(String(64), nullable=False, default='')
+    scores = Column(JSON, nullable=False, default=dict)
+    grade = Column(String(8), nullable=False, default='F')
+    evidence_json = Column(JSON, nullable=False, default=dict)
+    visibility = Column(String(16), nullable=False, default='private', index=True)
+    limitation_note = Column(Text, nullable=False, default='')
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class ModelTestRuns(Database.BASE):
+    __tablename__ = 'model_test_runs'
+    id = Column(Integer, primary_key=True)
+    job_id = Column(Integer, ForeignKey('model_test_jobs.id', ondelete='CASCADE'), nullable=False, index=True)
+    provider_id = Column(Integer, ForeignKey('relay_providers.id', ondelete='SET NULL'), nullable=True, index=True)
+    worker_id = Column(String(64), nullable=False, default='', index=True)
+    status = Column(String(32), nullable=False, index=True)
+    duration_ms = Column(Integer, nullable=False, default=0)
+    request_count = Column(Integer, nullable=False, default=0)
+    total_tokens = Column(Integer, nullable=False, default=0)
+    estimated_cost = Column(Numeric(14, 6), nullable=True)
+    error_type = Column(String(64), nullable=False, default='')
+    error_summary = Column(String(255), nullable=False, default='')
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('completed', 'failed', 'cancelled', 'timeout')", name='ck_model_test_run_status'),
+        Index('ix_model_test_runs_status_created', 'status', 'created_at'),
+        Index('ix_model_test_runs_provider_created', 'provider_id', 'created_at'),
+    )
+
+
+class RelayAvailabilitySamples(Database.BASE):
+    __tablename__ = 'relay_availability_samples'
+    id = Column(Integer, primary_key=True)
+    provider_id = Column(Integer, ForeignKey('relay_providers.id', ondelete='CASCADE'), nullable=False, index=True)
+    job_id = Column(Integer, ForeignKey('model_test_jobs.id', ondelete='SET NULL'), nullable=True, index=True)
+    source = Column(String(64), nullable=False, default='model_test', index=True)
+    status = Column(String(32), nullable=False, index=True)
+    http_status = Column(Integer, nullable=True)
+    latency_ms = Column(Integer, nullable=False, default=0)
+    error_type = Column(String(64), nullable=False, default='')
+    error_summary = Column(String(255), nullable=False, default='')
+    checked_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('available', 'degraded', 'failed', 'unknown')", name='ck_relay_availability_status'),
+        Index('ix_relay_availability_provider_checked', 'provider_id', 'checked_at'),
+        Index('ix_relay_availability_status_checked', 'status', 'checked_at'),
+    )
+
+
+class FraudEvents(Database.BASE):
+    __tablename__ = 'fraud_events'
+    id = Column(Integer, primary_key=True)
+    subject_type = Column(String(32), nullable=False, index=True)
+    subject_id = Column(String(128), nullable=False, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    evidence = Column(JSON, nullable=False, default=dict)
+    score_delta = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False, default='open', index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 async def register_models():
