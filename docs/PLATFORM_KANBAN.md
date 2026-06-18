@@ -63,6 +63,11 @@ Model Lab, and platform operations layer.
     pass with `settled=0`, `blocked=0`.
   - `tgsellbot-invite-settle.timer` is enabled and active; next run observed
     at `2026-06-19 03:32:42 CST`.
+- Admin review queues now support reviewer workload filters for channel
+  reports, relay feedback, and relay complaints.
+  - `assigned_to` accepts a reviewer id or `unassigned`.
+  - `reviewed_by` accepts a reviewer id or `unreviewed`.
+  - `escalation` filters by `none`, `watch`, `operator`, `risk`, or `urgent`.
 
 ## In Progress
 
@@ -89,11 +94,11 @@ Model Lab, and platform operations layer.
      rollback/correction steps.
 
 3. Channel center P0 hardening
-   - Add reviewer roles and review filters.
+   - Add reviewer role gates for future non-admin moderation access.
    - Expand moderation history.
 
 4. Relay directory P0 hardening
-   - Add reviewer role filters.
+   - Add reviewer role gates for future non-admin moderation access.
    - Improve complaint follow-up workflows.
    - Expand public owner-managed profiles after verification workflows mature.
 

@@ -456,6 +456,9 @@ async def api_admin_channel_claims_impl(request: Request):
 async def api_admin_channel_reports_impl(request: Request):
     rows = await list_channel_reports(
         status=request.query_params.get("status", ""),
+        assigned_to=request.query_params.get("assigned_to", ""),
+        reviewed_by=request.query_params.get("reviewed_by", ""),
+        escalation=request.query_params.get("escalation", ""),
         limit=int(request.query_params.get("limit", "50")),
         offset=int(request.query_params.get("offset", "0")),
     )
@@ -618,6 +621,9 @@ async def api_admin_relay_feedback_impl(request: Request):
         status=request.query_params.get("status", ""),
         feedback_type=request.query_params.get("feedback_type", ""),
         outcome=request.query_params.get("outcome", ""),
+        assigned_to=request.query_params.get("assigned_to", ""),
+        reviewed_by=request.query_params.get("reviewed_by", ""),
+        escalation=request.query_params.get("escalation", ""),
         limit=int(request.query_params.get("limit", "50")),
         offset=int(request.query_params.get("offset", "0")),
     )
@@ -1537,6 +1543,7 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
         endpoint: "/platform/api/admin/channel-reports",
         itemKey: "reports",
         statuses: ["", "reported", "under_review", "dismissed", "risk_blocked"],
+        reviewFilters: true,
         columns: ["Channel", "Risk", "Reports", "Assignment", "Note", "Actions"],
         render(item) {
           const report = item.report || {};
@@ -1614,6 +1621,7 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
         endpoint: "/platform/api/admin/relay-feedback",
         itemKey: "feedback",
         statuses: ["", "submitted", "under_review", "approved", "rejected", "risk_blocked"],
+        reviewFilters: true,
         columns: ["Provider", "Status", "Feedback", "Assignment", "Outcome", "Note", "Actions"],
         render(item) {
           const feedback = item.feedback || {};
@@ -1641,6 +1649,7 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
         endpoint: "/platform/api/admin/relay-feedback?feedback_type=complaint",
         itemKey: "feedback",
         statuses: ["", "submitted", "under_review", "approved", "rejected", "risk_blocked"],
+        reviewFilters: true,
         columns: ["Provider", "Status", "Complaint", "Assignment", "Outcome", "Note", "Actions"],
         render(item) {
           const feedback = item.feedback || {};
@@ -1833,11 +1842,23 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
         <label>User <input id="${queue.id}_user_id" inputmode="numeric" autocomplete="off" placeholder="telegram id"></label>
         <label>Search <input id="${queue.id}_q" autocomplete="off" placeholder="details"></label>`;
       }
+      const reviewFilters = queue.reviewFilters ? `
+        <label>Assigned
+          <input id="${queue.id}_assigned_to" inputmode="numeric" autocomplete="off" placeholder="id or unassigned">
+        </label>
+        <label>Reviewed
+          <input id="${queue.id}_reviewed_by" inputmode="numeric" autocomplete="off" placeholder="id or unreviewed">
+        </label>
+        <label>Escalation
+          <select id="${queue.id}_escalation">
+            ${["", "none", "watch", "operator", "risk", "urgent"].map(level => `<option value="${h(level)}">${h(level || "all")}</option>`).join("")}
+          </select>
+        </label>` : "";
       return `<label>Status
         <select id="${queue.id}_status">
           ${queue.statuses.map(status => `<option value="${h(status)}">${h(status || "all")}</option>`).join("")}
         </select>
-      </label>`;
+      </label>${reviewFilters}`;
     }
 
     function renderShell() {
@@ -1899,6 +1920,16 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
         } else {
           const status = document.getElementById(queue.id + "_status").value;
           if (status) url.searchParams.set("status", status);
+          if (queue.reviewFilters) {
+            [
+              ["assigned_to", "assigned_to"],
+              ["reviewed_by", "reviewed_by"],
+              ["escalation", "escalation"],
+            ].forEach(([param, field]) => {
+              const value = document.getElementById(queue.id + "_" + field)?.value.trim() || "";
+              if (value) url.searchParams.set(param, value);
+            });
+          }
         }
       }
       const state = document.getElementById(queue.id + "_state");

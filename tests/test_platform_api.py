@@ -1428,6 +1428,16 @@ class TestPlatformAPI:
             query="feedback_type=complaint&outcome=provider_fixed",
             authenticated=True,
         ))
+        assigned_filtered = await api_admin_relay_feedback(_request(
+            path="/platform/api/admin/relay-feedback",
+            query="feedback_type=complaint&assigned_to=240041&reviewed_by=240041&escalation=operator",
+            authenticated=True,
+        ))
+        unassigned_filtered = await api_admin_relay_feedback(_request(
+            path="/platform/api/admin/relay-feedback",
+            query="feedback_type=complaint&assigned_to=unassigned",
+            authenticated=True,
+        ))
 
         assert relay_response.status_code == 201
         assert rating_response.status_code == 201
@@ -1456,6 +1466,10 @@ class TestPlatformAPI:
         outcome_rows = _json(outcome_filtered)["feedback"]
         assert len(outcome_rows) == 1
         assert outcome_rows[0]["feedback"]["id"] == complaint["id"]
+        assigned_rows = _json(assigned_filtered)["feedback"]
+        assert len(assigned_rows) == 1
+        assert assigned_rows[0]["feedback"]["id"] == complaint["id"]
+        assert _json(unassigned_filtered)["feedback"] == []
 
     async def test_admin_session_can_triage_channel_reports(self, user_factory):
         await _set_platform_api_enabled("1")
@@ -1510,6 +1524,16 @@ class TestPlatformAPI:
             query="status=dismissed",
             authenticated=True,
         ))
+        assigned_list = await api_admin_channel_reports(_request(
+            path="/platform/api/admin/channel-reports",
+            query="status=dismissed&assigned_to=240030&reviewed_by=240030&escalation=watch",
+            authenticated=True,
+        ))
+        unassigned_list = await api_admin_channel_reports(_request(
+            path="/platform/api/admin/channel-reports",
+            query="status=dismissed&assigned_to=unassigned",
+            authenticated=True,
+        ))
         discovered = await api_discover_channels(_request(
             path="/platform/api/channels/discover",
             query="category=ai&language=zh",
@@ -1528,6 +1552,8 @@ class TestPlatformAPI:
         assert dismissed["report"]["reviewed_at"]
         assert dismissed["report"]["assigned_to"] == 240030
         assert dismissed["report"]["escalation"] == "watch"
+        assert _json(assigned_list)["reports"][0]["channel"]["id"] == channel["channel"]["id"]
+        assert _json(unassigned_list)["reports"] == []
         public_channel = _json(discovered)["channels"][0]
         assert "risk_notes" not in public_channel
         assert "risk_assigned_to" not in public_channel
@@ -2073,6 +2099,12 @@ class TestPlatformAPI:
         assert "renderChannelAdminDetail" in html
         assert "renderRelayAdminDetail" in html
         assert "Assigned user" in html
+        assert "id or unassigned" in html
+        assert "id or unreviewed" in html
+        assert "reviewFilters" in html
+        assert '["assigned_to", "assigned_to"]' in html
+        assert '["reviewed_by", "reviewed_by"]' in html
+        assert '["escalation", "escalation"]' in html
         assert "urgent" in html
         assert "/platform/api/admin/dashboard" in html
         assert "/platform/api/admin/owners/dashboard" in html

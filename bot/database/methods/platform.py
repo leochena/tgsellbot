@@ -940,12 +940,20 @@ async def record_channel_interaction(user_id: int, channel_id: int, action: str,
 async def list_channel_reports(
         status: str = "",
         *,
+        assigned_to: int | str | None = None,
+        reviewed_by: int | str | None = None,
+        escalation: str = "",
         limit: int = 50,
         offset: int = 0,
 ) -> dict[str, Any]:
     limit = min(max(int(limit or 50), 1), 100)
     offset = max(int(offset or 0), 0)
     status = status.strip()
+    assigned_filter = str(assigned_to or "").strip().lower()
+    reviewed_filter = str(reviewed_by or "").strip().lower()
+    escalation = str(escalation or "").strip().lower()
+    if escalation and escalation not in REVIEW_ESCALATIONS:
+        raise ValueError("invalid escalation")
     async with Database().session() as s:
         stmt = (
             select(
@@ -960,6 +968,16 @@ async def list_channel_reports(
         )
         if status:
             stmt = stmt.where(Channels.risk_status == status)
+        if assigned_filter in {"unassigned", "none", "null"}:
+            stmt = stmt.where(Channels.risk_assigned_to.is_(None))
+        elif assigned_filter:
+            stmt = stmt.where(Channels.risk_assigned_to == _optional_positive_int(assigned_filter))
+        if reviewed_filter in {"unreviewed", "none", "null"}:
+            stmt = stmt.where(Channels.risk_reviewed_by.is_(None))
+        elif reviewed_filter:
+            stmt = stmt.where(Channels.risk_reviewed_by == _optional_positive_int(reviewed_filter))
+        if escalation:
+            stmt = stmt.where(Channels.risk_escalation == escalation)
         rows = (await s.execute(
             stmt.order_by(func.max(ChannelInteractions.created_at).desc(), Channels.id.asc())
             .offset(offset)
@@ -1461,6 +1479,9 @@ async def list_relay_feedback(
         feedback_type: str = "",
         outcome: str = "",
         *,
+        assigned_to: int | str | None = None,
+        reviewed_by: int | str | None = None,
+        escalation: str = "",
         limit: int = 50,
         offset: int = 0,
 ) -> dict[str, Any]:
@@ -1469,6 +1490,11 @@ async def list_relay_feedback(
     status = status.strip()
     feedback_type = feedback_type.strip()
     outcome = outcome.strip()
+    assigned_filter = str(assigned_to or "").strip().lower()
+    reviewed_filter = str(reviewed_by or "").strip().lower()
+    escalation = str(escalation or "").strip().lower()
+    if escalation and escalation not in REVIEW_ESCALATIONS:
+        raise ValueError("invalid escalation")
     async with Database().session() as s:
         stmt = (
             select(RelayFeedback, RelayProviders)
@@ -1480,6 +1506,16 @@ async def list_relay_feedback(
             stmt = stmt.where(RelayFeedback.feedback_type == feedback_type)
         if outcome:
             stmt = stmt.where(RelayFeedback.outcome == outcome)
+        if assigned_filter in {"unassigned", "none", "null"}:
+            stmt = stmt.where(RelayFeedback.assigned_to.is_(None))
+        elif assigned_filter:
+            stmt = stmt.where(RelayFeedback.assigned_to == _optional_positive_int(assigned_filter))
+        if reviewed_filter in {"unreviewed", "none", "null"}:
+            stmt = stmt.where(RelayFeedback.reviewed_by.is_(None))
+        elif reviewed_filter:
+            stmt = stmt.where(RelayFeedback.reviewed_by == _optional_positive_int(reviewed_filter))
+        if escalation:
+            stmt = stmt.where(RelayFeedback.escalation == escalation)
         rows = (await s.execute(
             stmt.order_by(RelayFeedback.created_at.asc(), RelayFeedback.id.asc())
             .offset(offset)

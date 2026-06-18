@@ -404,6 +404,13 @@ class TestChannelFoundation:
             escalation="risk",
         )
         blocked_queue = await list_channel_reports(status="risk_blocked")
+        assigned_queue = await list_channel_reports(
+            status="risk_blocked",
+            assigned_to=220020,
+            reviewed_by=220020,
+            escalation="risk",
+        )
+        unassigned_queue = await list_channel_reports(status="risk_blocked", assigned_to="unassigned")
         discovered = await discover_channels(query="report", category="gpt", language="zh")
 
         assert reviewed is True
@@ -413,6 +420,8 @@ class TestChannelFoundation:
         assert blocked_queue["reports"][0]["report"]["reviewed_at"]
         assert blocked_queue["reports"][0]["report"]["assigned_to"] == 220020
         assert blocked_queue["reports"][0]["report"]["escalation"] == "risk"
+        assert assigned_queue["reports"][0]["channel"]["id"] == submission["channel"]["id"]
+        assert unassigned_queue["reports"] == []
         assert "risk_notes" not in blocked_queue["reports"][0]["channel"]
         assert discovered["total"] == 0
 
@@ -613,7 +622,14 @@ class TestRelayAndModelLabFoundation:
             outcome="provider_fixed",
             followup_notes="provider deployed timeout fix",
         )
-        queue = await list_relay_feedback(feedback_type="complaint", outcome="provider_fixed")
+        queue = await list_relay_feedback(
+            feedback_type="complaint",
+            outcome="provider_fixed",
+            assigned_to=230022,
+            reviewed_by=230022,
+            escalation="operator",
+        )
+        unassigned_queue = await list_relay_feedback(feedback_type="complaint", assigned_to="unassigned")
         detail = await get_relay_provider_detail(relay["id"])
 
         assert ok is True
@@ -623,6 +639,7 @@ class TestRelayAndModelLabFoundation:
         assert row["followup_notes"] == "provider deployed timeout fix"
         assert row["resolved_by"] == 230022
         assert row["resolved_at"]
+        assert unassigned_queue["feedback"] == []
         assert detail["feedback"]["recent"][0]["text"] == "timeout on stream"
         assert "outcome" not in detail["feedback"]["recent"][0]
         assert "followup_notes" not in detail["feedback"]["recent"][0]

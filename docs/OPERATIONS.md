@@ -85,6 +85,8 @@ runtime serves:
 - `GET /platform/api/...`
 
 Admin review endpoints remain session-gated and do not expose SQLAdmin login or generic database views in this mode.
+The Platform Review workspace can filter channel reports, relay feedback, and relay complaints by `assigned_to`,
+`reviewed_by`, and `escalation`; use `unassigned` or `unreviewed` for backlog triage.
 
 Before enabling Telegram Mini App menu buttons, run the launch gate. It validates that `platform_webapp_url` is a
 public HTTPS `/platform/app` URL and reports the current platform feature flags without printing secrets:
