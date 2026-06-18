@@ -134,8 +134,11 @@ Model Lab, and platform operations layer.
   - Server backup:
     `/opt/tgsellbot_backups/20260619-043117-model-lab-isolated-runner`.
   - Runner: `/usr/local/libexec/tgsellbot/run-isolated-worker.sh`.
-  - `tgsellbot-worker` cannot read `/opt/tgsellbot/.env`; the drain timer
-    remains disabled until a server-local key manifest is approved.
+  - `tgsellbot-worker` cannot read `/opt/tgsellbot/.env`.
+  - `tgsellbot-model-test-drain.service` and
+    `tgsellbot-model-test-drain.timer` are installed on the Virginia server;
+    the timer remains disabled/inactive until a server-local key manifest and
+    manual drain are approved.
 
 ## In Progress
 
@@ -232,3 +235,7 @@ Model Lab, and platform operations layer.
     `current_launch_live=true`.
   - The Model Lab isolated runner help smoke passed through sudo as
     `tgsellbot-worker`, and `.env` remained unreadable to that worker.
+  - `scripts/platform_ops.py model-drain-readiness-check` is intentionally
+    not green: runner check passes, `tgsellbot-model-test-drain.timer` is
+    installed but disabled/inactive, and `/etc/tgsellbot/model-test-keys.json`
+    is still missing. No drain jobs were run.

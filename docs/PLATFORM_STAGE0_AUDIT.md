@@ -242,7 +242,7 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 ## Risk Register
 
 - API key leakage: mitigated in foundation by refusing chat collection in UI copy, storing only fingerprint/mask in job records, passing one-time Worker keys through request body/stdin only, validating server-local batch manifests and drain readiness with redacted output, and recursively redacting reports/failure reasons.
-- SSRF: mitigated by `url_safety.py` plus the isolated Worker's runtime DNS and redirect revalidation. The Virginia isolated runner, sudoers file, and `tgsellbot-worker` smoke are installed; production drain should stay disabled until the server-local key manifest is approved.
+- SSRF: mitigated by `url_safety.py` plus the isolated Worker's runtime DNS and redirect revalidation. The Virginia isolated runner, sudoers file, `tgsellbot-worker` smoke, and disabled/inactive Model Lab drain systemd timer are installed; production drain should stay disabled until the server-local key manifest and a manual drain are approved.
 - Accounting drift: ledger is introduced but not yet authoritative. The live
   `ledger-cutover-check` gate currently rejects production source switching
   (`checked=18`, `mismatch_count=17`); a separate opening-backfill release and
@@ -264,6 +264,11 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 - Virginia production `scripts/platform_ops.py platform-cert-check --certbot --systemd-timers`
   passed with certificate expiry `2026-09-16T16:45:44+00:00`, 89 days
   remaining, certbot domain `tg.1so.org`, and one renewal timer listed.
+- Virginia production `scripts/platform_ops.py model-drain-readiness-check`
+  returned `ok=false` by design: the isolated runner passed, the
+  `tgsellbot-model-test-drain.timer` unit is installed but disabled/inactive,
+  and `/etc/tgsellbot/model-test-keys.json` is still missing. No drain jobs
+  were run.
 - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=model_lab`
   loaded the Mini App shell with Model Lab active, task/report paging controls,
   disabled paging without Telegram initData, no `localStorage`, and no console
