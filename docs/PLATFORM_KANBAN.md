@@ -114,6 +114,9 @@ Model Lab, and platform operations layer.
 - Mini App wallet now supports account-type filtering, ledger pagination,
   visible range/total state, and disabled prev/next controls while preserving
   server-side Telegram initData authorization.
+- Model Lab job and report lists in the Mini App now have prev/next paging
+  controls, visible range/total state, and disabled controls when Telegram
+  initData is missing or no further page exists.
 - The Virginia server has the root-owned Model Lab isolated runner installed
   and smoke-tested.
   - Commit: `ae555676641b8e24695661091d83a05bbf2922c7`.
@@ -184,15 +187,13 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 94 tests, including Bot WebApp menu markup validation, the ledger cutover gate, and the Model Lab key manifest check.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 94 tests, including Bot WebApp menu markup validation, the ledger cutover gate, the Model Lab key manifest check, and Model Lab job/report list pagination.
   - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 669 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
-  - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+  - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
   - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=model_lab`
-    loaded the Model Lab panel, confirmed the report sharing template and copy
-    fallback were present, and reported no console errors. The public report
-    page shell also loaded with public-API-only share controls; its list fetch
-    could not complete without a local test database.
+    loaded the Model Lab panel, confirmed task/report paging controls, disabled
+    paging without Telegram initData, no `localStorage`, and no console errors.
   - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=wallet`
     loaded the wallet panel, confirmed account filters plus prev/next ledger
     paging controls, disabled paging without Telegram initData, no

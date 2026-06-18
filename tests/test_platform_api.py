@@ -544,6 +544,37 @@ class TestPlatformAPI:
             init_data=init_data,
         ))
         report = _json(report_response)["result"]
+        second_job_response = await api_create_model_test(_request(
+            method="POST",
+            path="/platform/api/relay-tests",
+            body={
+                "user_id": 240003,
+                "endpoint": "https://api-relay-two.example.com/v1",
+                "protocol": "openai-compatible",
+                "requested_model": "gpt-4.1-mini",
+                "api_key": "sk-api-test-secret-two",
+                "idempotency_key": "api-job-240003-second",
+            },
+            authenticated=False,
+            init_data=init_data,
+        ))
+        second_job = _json(second_job_response)["result"]
+        second_report_response = await api_create_report(_request(
+            method="POST",
+            path=f"/platform/api/relay-tests/{second_job['id']}/reports",
+            path_params={"job_id": second_job["id"]},
+            body={
+                "user_id": 240003,
+                "declared_model": "gpt-4.1-mini",
+                "returned_model": "gpt-4.1-mini",
+                "suite_version": "p0",
+                "scores": {"protocol": 1},
+                "evidence_json": {"result": "ok"},
+            },
+            authenticated=False,
+            init_data=init_data,
+        ))
+        second_report = _json(second_report_response)["result"]
 
         loaded_job = await api_get_model_test(_request(
             path=f"/platform/api/relay-tests/{job['id']}",
@@ -561,13 +592,25 @@ class TestPlatformAPI:
         ))
         listed_jobs = await api_list_model_tests(_request(
             path="/platform/api/relay-tests",
-            query="user_id=240003",
+            query="user_id=240003&limit=1",
+            authenticated=False,
+            init_data=init_data,
+        ))
+        listed_jobs_page_two = await api_list_model_tests(_request(
+            path="/platform/api/relay-tests",
+            query="user_id=240003&limit=1&offset=1",
             authenticated=False,
             init_data=init_data,
         ))
         listed_reports = await api_list_reports(_request(
             path="/platform/api/reports",
-            query="user_id=240003",
+            query="user_id=240003&limit=1",
+            authenticated=False,
+            init_data=init_data,
+        ))
+        listed_reports_page_two = await api_list_reports(_request(
+            path="/platform/api/reports",
+            query="user_id=240003&limit=1&offset=1",
             authenticated=False,
             init_data=init_data,
         ))
@@ -617,14 +660,29 @@ class TestPlatformAPI:
         ))
 
         assert job_response.status_code == 201
+        assert second_job_response.status_code == 201
+        assert second_report_response.status_code == 201
         assert "sk-api-test-secret" not in str(job)
+        assert "sk-api-test-secret-two" not in str(second_job)
         assert loaded_job.status_code == 200
         assert _json(loaded_job)["result"]["status"] == "completed"
         assert _json(loaded_job)["result"]["report"]["id"] == report["id"]
         assert listed_jobs.status_code == 200
-        assert _json(listed_jobs)["jobs"][0]["report"]["id"] == report["id"]
+        assert _json(listed_jobs)["total"] == 2
+        assert _json(listed_jobs)["has_more"] is True
+        assert len(_json(listed_jobs)["jobs"]) == 1
+        assert listed_jobs_page_two.status_code == 200
+        assert _json(listed_jobs_page_two)["offset"] == 1
+        assert _json(listed_jobs_page_two)["has_more"] is False
+        assert {row["id"] for row in _json(listed_jobs)["jobs"] + _json(listed_jobs_page_two)["jobs"]} == {job["id"], second_job["id"]}
         assert listed_reports.status_code == 200
-        assert _json(listed_reports)["reports"][0]["job"]["id"] == job["id"]
+        assert _json(listed_reports)["total"] == 2
+        assert _json(listed_reports)["has_more"] is True
+        assert len(_json(listed_reports)["reports"]) == 1
+        assert listed_reports_page_two.status_code == 200
+        assert _json(listed_reports_page_two)["offset"] == 1
+        assert _json(listed_reports_page_two)["has_more"] is False
+        assert {row["id"] for row in _json(listed_reports)["reports"] + _json(listed_reports_page_two)["reports"]} == {report["id"], second_report["id"]}
         assert visibility.status_code == 200
         assert _json(updated_report)["result"]["visibility"] == "public"
         assert loaded_report.status_code == 200
@@ -2431,6 +2489,14 @@ class TestPlatformAPI:
         assert "/platform/api/reports" in html
         assert "data-model-report" in html
         assert "data-report-visibility" in html
+        assert "modelJobPrev" in html
+        assert "modelJobNext" in html
+        assert "modelJobPageState" in html
+        assert "modelReportPrev" in html
+        assert "modelReportNext" in html
+        assert "modelReportPageState" in html
+        assert "modelLabState.jobHasMore" in html
+        assert "modelLabState.reportHasMore" in html
         assert "visibilityLabel" in html
         assert "renderScoreBadges" in html
         assert "renderReportTimeline" in html

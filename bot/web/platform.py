@@ -2711,8 +2711,18 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
           </div>
         </form>
         <div id="testState" class="state"></div>
+        <div class="pager">
+          <button id="modelJobPrev" type="button">上一页任务</button>
+          <span id="modelJobPageState" class="state"></span>
+          <button id="modelJobNext" type="button">下一页任务</button>
+        </div>
         <div id="testResult" class="list"></div>
         <div id="reportState" class="state"></div>
+        <div class="pager">
+          <button id="modelReportPrev" type="button">上一页报告</button>
+          <span id="modelReportPageState" class="state"></span>
+          <button id="modelReportNext" type="button">下一页报告</button>
+        </div>
         <div id="reportList" class="list"></div>
       </div>
     </section>
@@ -2785,6 +2795,26 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     document.getElementById("loadOwnerDashboard").addEventListener("click", () => loadOwnerDashboard());
     document.getElementById("loadTests").addEventListener("click", () => loadModelTests());
     document.getElementById("loadReports").addEventListener("click", () => loadModelReports());
+    document.getElementById("modelJobPrev").addEventListener("click", () => {
+      modelLabState.jobOffset = Math.max(0, modelLabState.jobOffset - modelLabState.jobLimit);
+      loadModelTests();
+    });
+    document.getElementById("modelJobNext").addEventListener("click", () => {
+      if (modelLabState.jobHasMore) {
+        modelLabState.jobOffset += modelLabState.jobLimit;
+        loadModelTests();
+      }
+    });
+    document.getElementById("modelReportPrev").addEventListener("click", () => {
+      modelLabState.reportOffset = Math.max(0, modelLabState.reportOffset - modelLabState.reportLimit);
+      loadModelReports();
+    });
+    document.getElementById("modelReportNext").addEventListener("click", () => {
+      if (modelLabState.reportHasMore) {
+        modelLabState.reportOffset += modelLabState.reportLimit;
+        loadModelReports();
+      }
+    });
     document.getElementById("searchChannels").addEventListener("click", () => {
       channelState.offset = 0;
       loadChannels();
@@ -3849,6 +3879,9 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       if (!currentUserId) {
         setState("testState", "Telegram user is required.", "error");
         document.getElementById("testResult").innerHTML = renderTelegramRequired();
+        document.getElementById("modelJobPageState").textContent = "";
+        document.getElementById("modelJobPrev").disabled = true;
+        document.getElementById("modelJobNext").disabled = true;
         return;
       }
       setState("testState", "Loading");
@@ -3858,6 +3891,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
         url.searchParams.set("offset", String(modelLabState.jobOffset));
         const payload = await apiFetch(url);
         const rows = payload.jobs || [];
+        const total = Number(payload.total || rows.length || 0);
         modelLabState.jobHasMore = Boolean(payload.has_more);
         const node = document.getElementById("testResult");
         node.innerHTML = rows.length ? rows.map(job => (
@@ -3882,6 +3916,12 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
         );
         bindUtilityButtons(node);
         bindModelLabButtons();
+        const page = Math.floor(modelLabState.jobOffset / modelLabState.jobLimit) + 1;
+        const start = total ? modelLabState.jobOffset + 1 : 0;
+        const end = Math.min(modelLabState.jobOffset + rows.length, total || rows.length);
+        document.getElementById("modelJobPageState").textContent = total ? `第 ${page} 页 · ${start}-${end} / ${total}` : `第 ${page} 页`;
+        document.getElementById("modelJobPrev").disabled = modelLabState.jobOffset <= 0;
+        document.getElementById("modelJobNext").disabled = !modelLabState.jobHasMore;
         setState("testState", `${rows.length} jobs`, rows.length ? "ok" : "");
       } catch (error) {
         setState("testState", error.message || "Load failed", "error");
@@ -3892,6 +3932,9 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       if (!currentUserId) {
         setState("reportState", "Telegram user is required.", "error");
         document.getElementById("reportList").innerHTML = renderTelegramRequired();
+        document.getElementById("modelReportPageState").textContent = "";
+        document.getElementById("modelReportPrev").disabled = true;
+        document.getElementById("modelReportNext").disabled = true;
         return;
       }
       setState("reportState", "Loading");
@@ -3901,6 +3944,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
         url.searchParams.set("offset", String(modelLabState.reportOffset));
         const payload = await apiFetch(url);
         const rows = payload.reports || [];
+        const total = Number(payload.total || rows.length || 0);
         modelLabState.reportHasMore = Boolean(payload.has_more);
         const reportList = document.getElementById("reportList");
         reportList.innerHTML = rows.length ? rows.map(report => (
@@ -3925,6 +3969,12 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
         );
         bindUtilityButtons(reportList);
         bindModelLabButtons();
+        const page = Math.floor(modelLabState.reportOffset / modelLabState.reportLimit) + 1;
+        const start = total ? modelLabState.reportOffset + 1 : 0;
+        const end = Math.min(modelLabState.reportOffset + rows.length, total || rows.length);
+        document.getElementById("modelReportPageState").textContent = total ? `第 ${page} 页 · ${start}-${end} / ${total}` : `第 ${page} 页`;
+        document.getElementById("modelReportPrev").disabled = modelLabState.reportOffset <= 0;
+        document.getElementById("modelReportNext").disabled = !modelLabState.reportHasMore;
         setState("reportState", `${rows.length} reports`, rows.length ? "ok" : "");
       } catch (error) {
         setState("reportState", error.message || "Load failed", "error");
