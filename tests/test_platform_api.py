@@ -2537,6 +2537,15 @@ class TestPlatformAPI:
         assert "当前筛选" in html
         assert "channelDetail" in html
         assert "relayDetail" in html
+        assert '<button id="channelPrev" type="button" disabled>' in html
+        assert '<button id="channelNext" type="button" disabled>' in html
+        assert '<button id="relayPrev" type="button" disabled>' in html
+        assert '<button id="relayNext" type="button" disabled>' in html
+        assert "function setPagerControls" in html
+        assert "function disablePagerControls" in html
+        assert 'disablePagerControls("channelPrev", "channelNext", "channelPageState")' in html
+        assert 'disablePagerControls("relayPrev", "relayNext", "relayPageState")' in html
+        assert 'setPagerControls(' in html
         assert "data-detail" in html
         assert "can_edit_profile" in html
         assert 'data-channel-owner-profile="${h(channel.id)}"' in html

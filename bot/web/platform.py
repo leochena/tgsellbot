@@ -2538,8 +2538,8 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
           </div>
         </div>
         <div class="pager">
-          <button id="channelPrev" type="button">上一页</button>
-          <button id="channelNext" type="button">下一页</button>
+          <button id="channelPrev" type="button" disabled>上一页</button>
+          <button id="channelNext" type="button" disabled>下一页</button>
           <span id="channelPageState" class="state"></span>
         </div>
         <div id="channelList" class="list"></div>
@@ -2611,8 +2611,8 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
           </div>
         </div>
         <div class="pager">
-          <button id="relayPrev" type="button">上一页</button>
-          <button id="relayNext" type="button">下一页</button>
+          <button id="relayPrev" type="button" disabled>上一页</button>
+          <button id="relayNext" type="button" disabled>下一页</button>
           <span id="relayPageState" class="state"></span>
         </div>
         <div id="relayList" class="list"></div>
@@ -2931,6 +2931,21 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       return renderEmpty("需要从 Telegram 打开", "当前没有 Telegram initData，个人数据无法读取。");
     }
 
+    function setPagerControls(prevId, nextId, stateId, offset, limit, rowsLength, total, hasMore) {
+      const page = Math.floor(offset / limit) + 1;
+      const start = total ? offset + 1 : 0;
+      const end = Math.min(offset + rowsLength, total || rowsLength);
+      document.getElementById(stateId).textContent = total ? `第 ${page} 页 · ${start}-${end} / ${total}` : `第 ${page} 页`;
+      document.getElementById(prevId).disabled = offset <= 0;
+      document.getElementById(nextId).disabled = !hasMore;
+    }
+
+    function disablePagerControls(prevId, nextId, stateId) {
+      document.getElementById(stateId).textContent = "";
+      document.getElementById(prevId).disabled = true;
+      document.getElementById(nextId).disabled = true;
+    }
+
     function bindUtilityButtons(root = document) {
       root.querySelectorAll("[data-scroll-to]").forEach(button => {
         button.addEventListener("click", () => {
@@ -3190,6 +3205,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       if (!initData) {
         setState("channelState", "Telegram user is required.", "error");
         document.getElementById("channelList").innerHTML = renderTelegramRequired();
+        disablePagerControls("channelPrev", "channelNext", "channelPageState");
         return;
       }
       const q = document.getElementById("channelQuery").value.trim();
@@ -3237,10 +3253,16 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
           button.addEventListener("click", () => loadChannelDetail(button.dataset.detail));
         });
         const total = Number(payload.total || rows.length || 0);
-        const page = Math.floor(channelState.offset / channelState.limit) + 1;
-        const start = total ? channelState.offset + 1 : 0;
-        const end = Math.min(channelState.offset + rows.length, total || rows.length);
-        document.getElementById("channelPageState").textContent = total ? `第 ${page} 页 · ${start}-${end} / ${total}` : `第 ${page} 页`;
+        setPagerControls(
+          "channelPrev",
+          "channelNext",
+          "channelPageState",
+          channelState.offset,
+          channelState.limit,
+          rows.length,
+          total,
+          channelState.hasMore,
+        );
         setState("channelState", `${rows.length} item(s)`, rows.length ? "ok" : "");
       } catch (error) {
         setState("channelState", error.message || "Load failed", "error");
@@ -3388,6 +3410,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       if (!initData) {
         setState("relayState", "Telegram user is required.", "error");
         document.getElementById("relayList").innerHTML = renderTelegramRequired();
+        disablePagerControls("relayPrev", "relayNext", "relayPageState");
         return;
       }
       const q = document.getElementById("relayQuery").value.trim();
@@ -3435,10 +3458,16 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
           button.addEventListener("click", () => handleRelayAction(button.dataset.provider, button.dataset.relayAction));
         });
         const total = Number(payload.total || rows.length || 0);
-        const page = Math.floor(relayState.offset / relayState.limit) + 1;
-        const start = total ? relayState.offset + 1 : 0;
-        const end = Math.min(relayState.offset + rows.length, total || rows.length);
-        document.getElementById("relayPageState").textContent = total ? `第 ${page} 页 · ${start}-${end} / ${total}` : `第 ${page} 页`;
+        setPagerControls(
+          "relayPrev",
+          "relayNext",
+          "relayPageState",
+          relayState.offset,
+          relayState.limit,
+          rows.length,
+          total,
+          relayState.hasMore,
+        );
         setState("relayState", `${rows.length} item(s)`, rows.length ? "ok" : "");
       } catch (error) {
         setState("relayState", error.message || "Load failed", "error");

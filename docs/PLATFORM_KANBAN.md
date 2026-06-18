@@ -120,6 +120,10 @@ Model Lab, and platform operations layer.
 - Model Lab job and report lists in the Mini App now have prev/next paging
   controls, visible range/total state, and disabled controls when Telegram
   initData is missing or no further page exists.
+- Mini App channel and relay directory pagination now uses the same guarded
+  prev/next behavior as wallet and Model Lab lists: controls start disabled,
+  remain disabled without Telegram initData, and only enable when another page
+  exists.
 - The Virginia server has the root-owned Model Lab isolated runner installed
   and smoke-tested.
   - Commit: `ae555676641b8e24695661091d83a05bbf2922c7`.
@@ -194,6 +198,12 @@ Model Lab, and platform operations layer.
   - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 672 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
+  - Local Browser smoke on
+    `http://127.0.0.1:9393/platform/app?tab=channels` and
+    `http://127.0.0.1:9393/platform/app?tab=relays` confirmed the channel and
+    relay panels load, prev/next controls are disabled without Telegram
+    initData, page state is empty, no `localStorage` references are present,
+    and no console errors were recorded.
   - `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-cert-check --url https://tg.1so.org/platform/app --min-valid-days 21 --timeout 5` passed with certificate expiry `2026-09-16T16:45:44+00:00` and 89 days remaining.
   - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=model_lab`
     loaded the Model Lab panel, confirmed task/report paging controls, disabled
