@@ -157,6 +157,9 @@ sudo install -d -m 0755 -o root -g root /usr/local/libexec/tgsellbot
 sudo install -m 0755 -o root -g root deploy/model_lab/run-isolated-worker.sh /usr/local/libexec/tgsellbot/run-isolated-worker.sh
 sudo visudo -cf deploy/sudoers/tgsellbot-model-lab-worker
 sudo install -m 0440 -o root -g root deploy/sudoers/tgsellbot-model-lab-worker /etc/sudoers.d/tgsellbot-model-lab-worker
+sudo chmod o+x /opt/tgsellbot
+sudo chmod -R o+rX /opt/tgsellbot/.venv /opt/tgsellbot/bot /opt/tgsellbot/scripts
+sudo chmod 0600 /opt/tgsellbot/.env
 sudo cp deploy/systemd/tgsellbot-model-test-drain.service /etc/systemd/system/
 sudo cp deploy/systemd/tgsellbot-model-test-drain.timer /etc/systemd/system/
 sudo systemctl daemon-reload
