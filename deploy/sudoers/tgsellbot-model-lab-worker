@@ -1,0 +1,2 @@
+Defaults:tgsellbot !requiretty
+tgsellbot ALL=(tgsellbot-worker) NOPASSWD: /usr/local/libexec/tgsellbot/run-isolated-worker.sh *

@@ -1,4 +1,5 @@
 import logging
+import os
 from html import escape
 from typing import Any
 
@@ -81,6 +82,7 @@ PLATFORM_REVIEWER_ROLES = {"REVIEWER", "RISK_OPERATOR", "OPERATOR", "ADMIN", "OW
 PLATFORM_RISK_REVIEWER_ROLES = {"RISK_OPERATOR", "OPERATOR", "ADMIN", "OWNER"}
 PLATFORM_RISK_STATUSES = {"risk_blocked", "rejected"}
 PLATFORM_RISK_ESCALATIONS = {"risk", "urgent"}
+MODEL_LAB_WORKER_RUNNER_ENV = "MODEL_LAB_WORKER_RUNNER"
 
 
 class PlatformAPIError(Exception):
@@ -97,6 +99,11 @@ def _json_ok(data: dict[str, Any] | None = None, status_code: int = 200) -> JSON
 
 def _json_error(message: str, status_code: int = 400, code: str = "bad_request") -> JSONResponse:
     return JSONResponse({"ok": False, "error": message, "code": code}, status_code=status_code)
+
+
+def _model_lab_worker_runner() -> str | None:
+    value = os.getenv(MODEL_LAB_WORKER_RUNNER_ENV, "").strip()
+    return value or None
 
 
 def _is_authenticated(request: Request) -> bool:
@@ -783,15 +790,27 @@ async def api_admin_fraud_event_review_impl(request: Request):
 
 async def api_create_model_test_impl(request: Request):
     data = await _request_json(request)
-    result = await create_model_test_job(data, _actor_id(request, data))
     if data.get("run_now") is True:
         api_key = str(data.get("api_key") or "")
         if not api_key:
             raise PlatformAPIError("api_key is required for run_now.", 400, "api_key_required")
+        worker_runner = _model_lab_worker_runner()
+        if not worker_runner:
+            raise PlatformAPIError(
+                "Isolated model worker runner is required for run_now.",
+                503,
+                "model_worker_runner_required",
+            )
+    else:
+        worker_runner = None
+
+    result = await create_model_test_job(data, _actor_id(request, data))
+    if data.get("run_now") is True:
         await run_model_test_job_once(
             int(result["id"]),
             api_key,
             worker_id=f"miniapp:{result['id']}",
+            worker_runner=worker_runner,
         )
         loaded = await get_model_test_job(int(result["id"]), user_id=int(result["user_id"]))
         result = loaded or result

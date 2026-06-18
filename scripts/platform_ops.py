@@ -233,6 +233,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             max_redirects=args.max_redirects,
             max_concurrency=args.max_concurrency,
             max_tokens=args.max_tokens,
+            worker_runner=args.worker_runner,
         )
         if result is None:
             return {"ok": False, "job_id": args.job_id, "status": "not_found"}
@@ -250,6 +251,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             max_redirects=args.max_redirects,
             max_concurrency=args.max_concurrency,
             max_tokens=args.max_tokens,
+            worker_runner=args.worker_runner,
         )
     if args.command == "model-sample-retention":
         from bot.database.methods.platform import prune_model_lab_samples
@@ -351,6 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
     model_test.add_argument("--max-redirects", type=int, default=2)
     model_test.add_argument("--max-concurrency", type=int, default=2)
     model_test.add_argument("--max-tokens", type=int, default=64)
+    model_test.add_argument("--worker-runner", default=None, help="Executable wrapper for the isolated Worker; receives Worker args and task JSON on stdin.")
 
     drain = subparsers.add_parser(
         "model-test-drain",
@@ -365,6 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
     drain.add_argument("--max-redirects", type=int, default=2)
     drain.add_argument("--max-concurrency", type=int, default=2)
     drain.add_argument("--max-tokens", type=int, default=64)
+    drain.add_argument("--worker-runner", default=None, help="Executable wrapper for the isolated Worker; receives Worker args and task JSON on stdin.")
 
     retention = subparsers.add_parser(
         "model-sample-retention",

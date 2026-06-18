@@ -32,6 +32,7 @@ async def run_model_test_job_once(
         max_redirects: int = 2,
         max_concurrency: int = 2,
         max_tokens: int = 64,
+        worker_runner: str | None = None,
 ) -> dict[str, Any] | None:
     from bot.database.methods.platform import (
         claim_model_test_job,
@@ -59,6 +60,7 @@ async def run_model_test_job_once(
                 max_redirects=max_redirects,
                 max_concurrency=max_concurrency,
                 max_tokens=max_tokens,
+                worker_runner=worker_runner,
             )
         if not isinstance(report, dict):
             raise RuntimeError("Worker returned a non-object report.")
@@ -100,6 +102,7 @@ async def drain_model_test_jobs(
         max_redirects: int = 2,
         max_concurrency: int = 2,
         max_tokens: int = 64,
+        worker_runner: str | None = None,
 ) -> dict[str, Any]:
     from bot.database.methods.platform import list_claimable_model_test_jobs
 
@@ -134,6 +137,7 @@ async def drain_model_test_jobs(
                 max_redirects=max_redirects,
                 max_concurrency=max_concurrency,
                 max_tokens=max_tokens,
+                worker_runner=worker_runner,
             )
             processed += 1
             results.append({
@@ -199,22 +203,19 @@ async def run_worker_subprocess(
         max_tokens: int = 64,
         python_executable: str | None = None,
         worker_script: Path | None = None,
+        worker_runner: str | None = None,
 ) -> dict[str, Any]:
     api_key = str(task.get("api_key") or "")
-    command = [
-        python_executable or sys.executable,
-        str(worker_script or DEFAULT_WORKER_SCRIPT),
-        "--timeout",
-        str(worker_timeout_seconds),
-        "--max-response-bytes",
-        str(max_response_bytes),
-        "--max-redirects",
-        str(max_redirects),
-        "--max-concurrency",
-        str(max_concurrency),
-        "--max-tokens",
-        str(max_tokens),
-    ]
+    command = _build_worker_command(
+        worker_timeout_seconds=worker_timeout_seconds,
+        max_response_bytes=max_response_bytes,
+        max_redirects=max_redirects,
+        max_concurrency=max_concurrency,
+        max_tokens=max_tokens,
+        python_executable=python_executable,
+        worker_script=worker_script,
+        worker_runner=worker_runner,
+    )
     proc = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,
@@ -241,6 +242,38 @@ async def run_worker_subprocess(
     if not isinstance(payload, dict):
         raise RuntimeError("Worker process returned a non-object payload.")
     return payload
+
+
+def _build_worker_command(
+        *,
+        worker_timeout_seconds: float = 20.0,
+        max_response_bytes: int = 256 * 1024,
+        max_redirects: int = 2,
+        max_concurrency: int = 2,
+        max_tokens: int = 64,
+        python_executable: str | None = None,
+        worker_script: Path | None = None,
+        worker_runner: str | None = None,
+) -> list[str]:
+    args = [
+        "--timeout",
+        str(worker_timeout_seconds),
+        "--max-response-bytes",
+        str(max_response_bytes),
+        "--max-redirects",
+        str(max_redirects),
+        "--max-concurrency",
+        str(max_concurrency),
+        "--max-tokens",
+        str(max_tokens),
+    ]
+    if worker_runner:
+        return [str(worker_runner), *args]
+    return [
+        python_executable or sys.executable,
+        str(worker_script or DEFAULT_WORKER_SCRIPT),
+        *args,
+    ]
 
 
 def _redact_text(value: str, secret: str = "") -> str:

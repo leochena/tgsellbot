@@ -51,6 +51,8 @@ class TestPlatformOpsScript:
             "42",
             "--api-key-file",
             "key.txt",
+            "--worker-runner",
+            "/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
             "--worker-id",
             "ops-worker",
             "--process-timeout",
@@ -70,6 +72,7 @@ class TestPlatformOpsScript:
         assert args.command == "model-test-run"
         assert args.job_id == 42
         assert args.api_key_file == "key.txt"
+        assert args.worker_runner == "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
         assert args.worker_id == "ops-worker"
         assert args.process_timeout == 5
         assert args.worker_timeout == 3
@@ -84,6 +87,8 @@ class TestPlatformOpsScript:
             "model-test-drain",
             "--key-manifest-file",
             "keys.json",
+            "--worker-runner",
+            "/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
             "--worker-id",
             "drain-worker",
             "--limit",
@@ -104,6 +109,7 @@ class TestPlatformOpsScript:
 
         assert args.command == "model-test-drain"
         assert args.key_manifest_file == "keys.json"
+        assert args.worker_runner == "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
         assert args.worker_id == "drain-worker"
         assert args.limit == 3
         assert args.process_timeout == 5
@@ -293,10 +299,14 @@ class TestPlatformOpsScript:
         drain_timer = (root / "deploy" / "systemd" / "tgsellbot-model-test-drain.timer").read_text(encoding="utf-8")
         retention_service = (root / "deploy" / "systemd" / "tgsellbot-model-sample-retention.service").read_text(encoding="utf-8")
         retention_timer = (root / "deploy" / "systemd" / "tgsellbot-model-sample-retention.timer").read_text(encoding="utf-8")
+        runner = (root / "deploy" / "model_lab" / "run-isolated-worker.sh").read_text(encoding="utf-8")
+        sudoers = (root / "deploy" / "sudoers" / "tgsellbot-model-lab-worker").read_text(encoding="utf-8")
 
         assert "Type=oneshot" in drain_service
         assert "scripts/platform_ops.py model-test-drain" in drain_service
         assert "ExecCondition=/usr/bin/test -s ${MODEL_TEST_KEY_MANIFEST}" in drain_service
+        assert "ExecCondition=/usr/bin/test -x ${MODEL_LAB_WORKER_RUNNER}" in drain_service
+        assert "--worker-runner ${MODEL_LAB_WORKER_RUNNER}" in drain_service
         assert "--limit 10" in drain_service
         assert "--max-concurrency 2" in drain_service
         assert "api-key" not in drain_service.lower()
@@ -312,6 +322,16 @@ class TestPlatformOpsScript:
         assert "Unit=tgsellbot-model-sample-retention.service" in retention_timer
         assert "OnUnitActiveSec=1d" in retention_timer
         assert "Persistent=true" in retention_timer
+        assert "sudo" in runner
+        assert "tgsellbot-worker" in runner
+        assert "env -i" in runner
+        assert "PYTHONPATH=\"$APP_DIR\"" in runner
+        assert "platform_worker.py" in runner
+        assert "POSTGRES" not in runner
+        assert "TOKEN" not in runner
+        assert "NOPASSWD" in sudoers
+        assert "tgsellbot-worker" in sudoers
+        assert "/usr/local/libexec/tgsellbot/run-isolated-worker.sh" in sudoers
 
 
 class TestPlatformWorkerScript:

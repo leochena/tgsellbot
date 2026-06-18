@@ -8,8 +8,10 @@ Type=oneshot
 WorkingDirectory=/opt/tgsellbot
 EnvironmentFile=/opt/tgsellbot/.env
 Environment=MODEL_TEST_KEY_MANIFEST=/etc/tgsellbot/model-test-keys.json
+Environment=MODEL_LAB_WORKER_RUNNER=/usr/local/libexec/tgsellbot/run-isolated-worker.sh
 ExecCondition=/usr/bin/test -s ${MODEL_TEST_KEY_MANIFEST}
-ExecStart=/opt/tgsellbot/.venv/bin/python /opt/tgsellbot/scripts/platform_ops.py model-test-drain --key-manifest-file ${MODEL_TEST_KEY_MANIFEST} --worker-id platform-drain --limit 10 --process-timeout 90 --worker-timeout 20 --max-response-bytes 262144 --max-redirects 2 --max-concurrency 2 --max-tokens 64
+ExecCondition=/usr/bin/test -x ${MODEL_LAB_WORKER_RUNNER}
+ExecStart=/opt/tgsellbot/.venv/bin/python /opt/tgsellbot/scripts/platform_ops.py model-test-drain --key-manifest-file ${MODEL_TEST_KEY_MANIFEST} --worker-id platform-drain --limit 10 --process-timeout 90 --worker-timeout 20 --max-response-bytes 262144 --max-redirects 2 --max-concurrency 2 --max-tokens 64 --worker-runner ${MODEL_LAB_WORKER_RUNNER}
 User=tgsellbot
 Group=tgsellbot
 NoNewPrivileges=true

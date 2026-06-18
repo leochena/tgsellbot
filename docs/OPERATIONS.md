@@ -152,6 +152,11 @@ readout:
 ```bash
 sudo install -d -m 0700 -o tgsellbot -g tgsellbot /etc/tgsellbot
 sudo install -m 0600 -o tgsellbot -g tgsellbot /path/to/model-test-keys.json /etc/tgsellbot/model-test-keys.json
+sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin tgsellbot-worker || true
+sudo install -d -m 0755 -o root -g root /usr/local/libexec/tgsellbot
+sudo install -m 0755 -o root -g root deploy/model_lab/run-isolated-worker.sh /usr/local/libexec/tgsellbot/run-isolated-worker.sh
+sudo visudo -cf deploy/sudoers/tgsellbot-model-lab-worker
+sudo install -m 0440 -o root -g root deploy/sudoers/tgsellbot-model-lab-worker /etc/sudoers.d/tgsellbot-model-lab-worker
 sudo cp deploy/systemd/tgsellbot-model-test-drain.service /etc/systemd/system/
 sudo cp deploy/systemd/tgsellbot-model-test-drain.timer /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -159,9 +164,12 @@ sudo systemctl enable --now tgsellbot-model-test-drain.timer
 ```
 
 Only enable the drain timer after the isolated Worker trust boundary is
-accepted for production use. For sample retention, preview first and then
-install the daily cleanup timer. The retention command also writes a redacted
-`platform_ops_run` audit event for the dashboard readout:
+accepted for production use. The installed runner re-executes the Worker as
+`tgsellbot-worker`, clears the application environment before `platform_worker.py`
+starts, and passes the one-time task JSON only through stdin. For sample
+retention, preview first and then install the daily cleanup timer. The retention
+command also writes a redacted `platform_ops_run` audit event for the dashboard
+readout:
 
 ```bash
 cd /opt/tgsellbot

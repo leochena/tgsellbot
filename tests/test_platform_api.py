@@ -950,11 +950,13 @@ class TestPlatformAPI:
         await user_factory(telegram_id=240004)
         init_data = make_init_data(240004, token="test_token")
         seen = {}
+        monkeypatch.setenv("MODEL_LAB_WORKER_RUNNER", "/usr/local/libexec/tgsellbot/run-isolated-worker.sh")
 
-        async def fake_run_once(job_id, api_key, *, worker_id):
+        async def fake_run_once(job_id, api_key, *, worker_id, worker_runner=None):
             seen["job_id"] = job_id
             seen["api_key"] = api_key
             seen["worker_id"] = worker_id
+            seen["worker_runner"] = worker_runner
             from bot.database.methods.platform import complete_model_test_job
 
             return await complete_model_test_job(
@@ -994,7 +996,41 @@ class TestPlatformAPI:
         assert payload["result"]["status"] == "completed"
         assert seen["api_key"] == "sk-run-now-secret"
         assert seen["worker_id"] == f"miniapp:{seen['job_id']}"
+        assert seen["worker_runner"] == "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
         assert "sk-run-now-secret" not in str(payload)
+
+    async def test_mini_app_run_now_requires_isolated_worker_runner(self, user_factory, monkeypatch):
+        await _set_platform_api_enabled("1")
+        await user_factory(telegram_id=240064)
+        init_data = make_init_data(240064, token="test_token")
+        monkeypatch.delenv("MODEL_LAB_WORKER_RUNNER", raising=False)
+
+        response = await api_create_model_test(_request(
+            method="POST",
+            path="/platform/api/relay-tests",
+            body={
+                "user_id": 240064,
+                "endpoint": "https://runner-required.example.com/v1",
+                "protocol": "openai-compatible",
+                "requested_model": "gpt-runner-required",
+                "api_key": "sk-runner-required-secret",
+                "idempotency_key": "api-job-240064-runner-required",
+                "run_now": True,
+            },
+            authenticated=False,
+            init_data=init_data,
+        ))
+        listed_jobs = await api_list_model_tests(_request(
+            path="/platform/api/relay-tests",
+            query="user_id=240064",
+            authenticated=False,
+            init_data=init_data,
+        ))
+
+        assert response.status_code == 503
+        assert _json(response)["code"] == "model_worker_runner_required"
+        assert _json(listed_jobs)["jobs"] == []
+        assert "sk-runner-required-secret" not in str(_json(response))
 
     async def test_admin_session_can_review_channels_and_relays(self, user_factory):
         await _set_platform_api_enabled("1")

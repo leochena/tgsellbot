@@ -90,6 +90,10 @@ Model Lab, and platform operations layer.
   `model-test-drain` and `model-sample-retention` runs. The CLI records
   redacted `platform_ops_run` audit events for successful and failed scheduled
   runs, and the review workspace renders a Model ops row.
+- Model Lab drain can now use an external isolated Worker runner through
+  `--worker-runner`. The source-controlled runner/sudoers templates execute
+  `platform_worker.py` as `tgsellbot-worker` with a cleared application
+  environment, and the drain service skips until the root-owned runner exists.
 
 ## In Progress
 
@@ -127,17 +131,17 @@ Model Lab, and platform operations layer.
    - Expand public owner-managed profiles after verification workflows mature.
 
 5. Model Lab P0 production wiring
-   - Isolate Worker deployment from the main bot trust boundary.
    - Enable the batch-drain timer only after the server-local key manifest and
-     isolated Worker deployment boundary are approved.
+     installed isolated Worker runner are approved.
 
 6. Dashboard hardening
    - Replace unavailable metric placeholders only when collection is live.
 
 ## Blocked Or Needs External Setup
 
-- Model Lab production run path requires a separate isolated Worker deployment
-  environment before accepting real user keys at scale.
+- Model Lab batch drain requires the root-owned isolated Worker runner,
+  `tgsellbot-worker` user, sudoers template, and server-local key manifest to be
+  installed and smoke-tested before accepting real user keys at scale.
 
 ## Verification Checklist
 
@@ -147,8 +151,8 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 86 tests.
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 659 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 87 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 662 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
 - Latest server runtime verification:

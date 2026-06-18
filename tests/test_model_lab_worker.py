@@ -11,6 +11,7 @@ from bot.model_lab import (
     normalize_worker_endpoint,
     resolve_public_addresses,
 )
+from bot.model_lab.dispatcher import _build_worker_command
 
 
 def public_resolver(host, port, type=socket.SOCK_STREAM):
@@ -45,6 +46,42 @@ class FakeSession:
     async def request(self, method, url, **kwargs):
         self.requests.append({"method": method, "url": url, "kwargs": kwargs})
         return self.handler(method, url, kwargs.get("json"))
+
+
+class TestWorkerDispatchCommand:
+    def test_worker_command_can_use_external_runner_without_secret_arguments(self):
+        command = _build_worker_command(
+            worker_runner="/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
+            worker_timeout_seconds=3,
+            max_response_bytes=4096,
+            max_redirects=1,
+            max_concurrency=1,
+            max_tokens=16,
+        )
+
+        joined = " ".join(command)
+        assert command[0] == "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
+        assert "--timeout" in command
+        assert "3" in command
+        assert "--max-response-bytes" in command
+        assert "4096" in command
+        assert "platform_worker.py" not in joined
+        assert "api_key" not in joined
+        assert "sk-" not in joined
+
+    def test_worker_command_defaults_to_platform_worker_script(self):
+        command = _build_worker_command(
+            python_executable="python-test",
+            worker_timeout_seconds=3,
+            max_response_bytes=4096,
+            max_redirects=1,
+            max_concurrency=1,
+            max_tokens=16,
+        )
+
+        assert command[0] == "python-test"
+        assert command[1].endswith("scripts\\platform_worker.py") or command[1].endswith("scripts/platform_worker.py")
+        assert "--max-tokens" in command
 
 
 class TestModelLabTargetSafety:
