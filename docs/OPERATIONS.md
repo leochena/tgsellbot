@@ -148,7 +148,8 @@ For operator batch drain, keep the manifest only on the server, for example
 systemd drain template skips execution while the manifest file is missing or
 empty. Successful and failed `model-test-drain` runs write redacted
 `platform_ops_run` audit events that appear in the Platform Dashboard Model ops
-readout:
+readout. Validate the manifest before a manual drain or timer enablement; the
+check prints only fingerprints, hashes, masks, and counts, never raw keys:
 
 ```bash
 sudo install -d -m 0700 -o tgsellbot -g tgsellbot /etc/tgsellbot
@@ -161,19 +162,21 @@ sudo install -m 0440 -o root -g root deploy/sudoers/tgsellbot-model-lab-worker /
 sudo chmod o+rx /opt/tgsellbot
 sudo chmod -R o+rX /opt/tgsellbot/.venv /opt/tgsellbot/bot /opt/tgsellbot/scripts
 sudo chmod 0600 /opt/tgsellbot/.env
+./.venv/bin/python scripts/platform_ops.py model-key-manifest-check --key-manifest-file /etc/tgsellbot/model-test-keys.json
 sudo cp deploy/systemd/tgsellbot-model-test-drain.service /etc/systemd/system/
 sudo cp deploy/systemd/tgsellbot-model-test-drain.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now tgsellbot-model-test-drain.timer
 ```
 
-Only enable the drain timer after the isolated Worker trust boundary is
-accepted for production use. The installed runner re-executes the Worker as
-`tgsellbot-worker`, clears the application environment before `platform_worker.py`
-starts, and passes the one-time task JSON only through stdin. For sample
-retention, preview first and then install the daily cleanup timer. The retention
-command also writes a redacted `platform_ops_run` audit event for the dashboard
-readout:
+Only enable the drain timer after `model-key-manifest-check` returns `ok=true`,
+the isolated Worker trust boundary is accepted for production use, and a manual
+operator drain has been approved. The installed runner re-executes the Worker as
+`tgsellbot-worker`, clears the application environment before
+`platform_worker.py` starts, and passes the one-time task JSON only through
+stdin. For sample retention, preview first and then install the daily cleanup
+timer. The retention command also writes a redacted `platform_ops_run` audit
+event for the dashboard readout:
 
 ```bash
 cd /opt/tgsellbot

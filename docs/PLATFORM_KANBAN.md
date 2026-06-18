@@ -104,6 +104,9 @@ Model Lab, and platform operations layer.
   `--worker-runner`. The source-controlled runner/sudoers templates execute
   `platform_worker.py` as `tgsellbot-worker` with a cleared application
   environment, and the drain service skips until the root-owned runner exists.
+- Model Lab key manifests now have a read-only `model-key-manifest-check`
+  command that validates server-local manifest shape, duplicate fingerprints,
+  and redacted output before a manual drain or timer enablement.
 - The Virginia server has the root-owned Model Lab isolated runner installed
   and smoke-tested.
   - Commit: `ae555676641b8e24695661091d83a05bbf2922c7`.
@@ -151,8 +154,9 @@ Model Lab, and platform operations layer.
    - Expand public owner-managed profiles after verification workflows mature.
 
 5. Model Lab P0 production wiring
-   - Enable the batch-drain timer only after the server-local key manifest and
-     installed isolated Worker runner are approved.
+   - Enable the batch-drain timer only after the server-local key manifest
+     passes `model-key-manifest-check`, the isolated Worker runner is approved,
+     and a manual drain is approved.
 
 6. Dashboard hardening
    - Replace unavailable metric placeholders only when collection is live.
@@ -161,6 +165,7 @@ Model Lab, and platform operations layer.
 
 - Model Lab batch drain still requires a server-local key manifest and explicit
   approval before enabling `tgsellbot-model-test-drain.timer` for real keys.
+  The manifest must pass `model-key-manifest-check` first.
 
 ## Verification Checklist
 
@@ -170,8 +175,8 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 89 tests, including Bot WebApp menu markup validation and the ledger cutover gate.
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 664 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 94 tests, including Bot WebApp menu markup validation, the ledger cutover gate, and the Model Lab key manifest check.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 669 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
 - Latest server runtime verification:

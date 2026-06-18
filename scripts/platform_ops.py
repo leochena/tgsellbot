@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -31,6 +32,7 @@ LEDGER_CUTOVER_CORRECTION_PLAN = [
     "Run ledger-opening on the approved copy or release window, then repeat ledger-reconcile.",
     "Investigate remaining mismatches per user/account and apply audited correction entries before any read-source switch.",
 ]
+SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _json_default(value: Any) -> str:
@@ -284,6 +286,83 @@ def evaluate_ledger_cutover_readiness(reconciliation: dict[str, Any]) -> dict[st
     }
 
 
+def evaluate_model_key_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    from bot.misc.url_safety import fingerprint_secret, mask_secret
+    from bot.model_lab.dispatcher import _key_manifest_to_fingerprints
+
+    try:
+        mapping = _key_manifest_to_fingerprints(manifest)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "key_count": 0,
+            "unique_fingerprint_count": 0,
+            "duplicate_fingerprint_count": 0,
+            "keys": [],
+            "error": str(exc),
+            "next_actions": ["Fix the server-local Model Lab key manifest before enabling the drain timer."],
+        }
+
+    entries = _collect_model_key_manifest_entries(manifest)
+    duplicate_count = max(0, len(entries) - len(mapping))
+    safe_keys = [
+        {
+            "fingerprint": _safe_fingerprint_for_output(fingerprint),
+            "fingerprint_format": "sha256" if SHA256_HEX_RE.match(fingerprint) else "custom_masked",
+            "fingerprint_hash": fingerprint_secret(fingerprint),
+            "key_masked": mask_secret(api_key),
+        }
+        for fingerprint, api_key in sorted(mapping.items())
+    ]
+
+    next_actions = [
+        "Keep the manifest server-local and unreadable by the isolated worker user.",
+        "Run model-test-drain manually with approval before enabling tgsellbot-model-test-drain.timer.",
+    ]
+    if duplicate_count:
+        next_actions.insert(0, "Remove duplicate manifest fingerprints so each API key maps to one claimable key fingerprint.")
+
+    return {
+        "ok": duplicate_count == 0,
+        "key_count": len(entries),
+        "unique_fingerprint_count": len(mapping),
+        "duplicate_fingerprint_count": duplicate_count,
+        "keys": safe_keys,
+        "next_actions": next_actions,
+    }
+
+
+def _collect_model_key_manifest_entries(manifest: dict[str, Any]) -> list[tuple[str, str]]:
+    from bot.misc.url_safety import fingerprint_secret
+
+    items = manifest.get("keys", manifest) if isinstance(manifest, dict) else {}
+    entries: list[tuple[str, str]] = []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            api_key = str(item.get("api_key") or item.get("key") or "").strip()
+            fingerprint = str(item.get("fingerprint") or fingerprint_secret(api_key)).strip()
+            if api_key and fingerprint:
+                entries.append((fingerprint, api_key))
+    elif isinstance(items, dict):
+        for raw_fingerprint, raw_key in items.items():
+            api_key = str(raw_key or "").strip()
+            fingerprint = str(raw_fingerprint or fingerprint_secret(api_key)).strip()
+            if api_key and fingerprint:
+                entries.append((fingerprint, api_key))
+    return entries
+
+
+def _safe_fingerprint_for_output(fingerprint: str) -> str:
+    from bot.misc.url_safety import mask_secret
+
+    value = str(fingerprint or "").strip()
+    if SHA256_HEX_RE.match(value):
+        return value
+    return mask_secret(value)
+
+
 def _smoke_platform_webapp(url: str, timeout: float) -> dict[str, Any]:
     if not url:
         return {"ok": False, "status": 0, "error": "URL is required."}
@@ -382,6 +461,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             max_tokens=args.max_tokens,
             worker_runner=args.worker_runner,
         )
+    if args.command == "model-key-manifest-check":
+        return evaluate_model_key_manifest(_read_json_secret_manifest(args.key_manifest_file))
     if args.command == "model-sample-retention":
         from bot.database.methods.platform import prune_model_lab_samples
 
@@ -502,6 +583,12 @@ def build_parser() -> argparse.ArgumentParser:
     drain.add_argument("--max-concurrency", type=int, default=2)
     drain.add_argument("--max-tokens", type=int, default=64)
     drain.add_argument("--worker-runner", default=None, help="Executable wrapper for the isolated Worker; receives Worker args and task JSON on stdin.")
+
+    manifest_check = subparsers.add_parser(
+        "model-key-manifest-check",
+        help="Validate an ephemeral Model Lab key manifest without printing raw keys.",
+    )
+    manifest_check.add_argument("--key-manifest-file", default=None, help="Read JSON key manifest from file; omit to read stdin.")
 
     retention = subparsers.add_parser(
         "model-sample-retention",

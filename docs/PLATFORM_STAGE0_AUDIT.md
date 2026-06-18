@@ -169,6 +169,10 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
   `platform_ops_run` audit event. Do not commit or log the manifest file. The
   runner path should be a root-owned wrapper installed from
   `deploy/model_lab/run-isolated-worker.sh` with the matching sudoers template.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py model-key-manifest-check --key-manifest-file .\model-test-keys.json`
+  validates a server-local Model Lab key manifest before manual drain or timer
+  enablement. The output is read-only and contains only counts, fingerprints,
+  hashes, and masks; raw keys must not appear in command output or logs.
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py model-sample-retention --dry-run`
   previews old Model Lab run and relay availability samples that would be
   pruned. Omit `--dry-run` to delete the bounded batch using the configured
@@ -204,7 +208,7 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
    - Expand public profiles with richer owner-managed editorial fields after owner verification is production-ready.
 
 5. Model Lab P0
-   - Enable the operator batch-drain timer only after the isolated Worker runner is installed, smoke-tested under `tgsellbot-worker`, and paired with a server-local key manifest with restricted permissions.
+   - Enable the operator batch-drain timer only after the isolated Worker runner is installed, smoke-tested under `tgsellbot-worker`, and paired with a restricted server-local key manifest that passes `model-key-manifest-check`.
    - Harden the current Mini App report screens with production-grade sharing flows once Worker scheduler evidence exists. Current public/unlisted report entry points are read-only and redacted; `unlisted` links require the generated share token and do not appear in the public report list. Recent Model Lab run history is now shown on owner job/report details and public report detail without exposing API keys or owner ids.
    - Keep network controls, timeout/size/token limits, and redirect revalidation enforced in deployment.
    - Extend protocol coverage and report scoring as additional compatibility cases are verified.
@@ -222,7 +226,7 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 
 ## Risk Register
 
-- API key leakage: mitigated in foundation by refusing chat collection in UI copy, storing only fingerprint/mask in job records, passing one-time Worker keys through request body/stdin only, and recursively redacting reports/failure reasons.
+- API key leakage: mitigated in foundation by refusing chat collection in UI copy, storing only fingerprint/mask in job records, passing one-time Worker keys through request body/stdin only, validating server-local batch manifests with redacted output, and recursively redacting reports/failure reasons.
 - SSRF: mitigated by `url_safety.py` plus the isolated Worker's runtime DNS and redirect revalidation. The Virginia isolated runner, sudoers file, and `tgsellbot-worker` smoke are installed; production drain should stay disabled until the server-local key manifest is approved.
 - Accounting drift: ledger is introduced but not yet authoritative. The live
   `ledger-cutover-check` gate currently rejects production source switching
@@ -234,10 +238,11 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 
 ## Verification Record
 
-- `.\.venv312\Scripts\python.exe scripts\platform_ops.py --help` passed.
-- `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_model_lab_worker.py tests\test_platform_ops.py -q` passed: 16 tests.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 33 tests.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py model-key-manifest-check --help` passed.
+- `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 22 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 94 tests.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 669 tests.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py tests\test_platform_api.py tests\test_platform_foundation.py -q` passed: 51 tests.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 7 tests.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_group_invites.py tests\test_keyboards.py -q` passed: 57 tests.

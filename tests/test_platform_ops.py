@@ -11,6 +11,7 @@ from scripts.platform_ops import (
     _run_with_audit,
     build_parser,
     evaluate_ledger_cutover_readiness,
+    evaluate_model_key_manifest,
     evaluate_platform_launch_readiness,
 )
 from scripts.platform_worker import build_parser as build_worker_parser
@@ -188,6 +189,81 @@ class TestPlatformOpsScript:
         assert args.max_redirects == 1
         assert args.max_concurrency == 1
         assert args.max_tokens == 16
+
+    def test_parser_accepts_model_key_manifest_check(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "model-key-manifest-check",
+            "--key-manifest-file",
+            "keys.json",
+        ])
+
+        assert args.command == "model-key-manifest-check"
+        assert args.key_manifest_file == "keys.json"
+
+    def test_model_key_manifest_check_redacts_raw_keys(self):
+        raw_key_one = "sk-unit-secret-one"
+        raw_key_two = "sk-unit-secret-two"
+
+        result = evaluate_model_key_manifest({
+            "keys": [
+                {"api_key": raw_key_one},
+                {"key": raw_key_two},
+            ]
+        })
+        serialized = str(result)
+
+        assert result["ok"] is True
+        assert result["key_count"] == 2
+        assert result["unique_fingerprint_count"] == 2
+        assert result["duplicate_fingerprint_count"] == 0
+        assert len(result["keys"]) == 2
+        assert all(item["fingerprint_format"] == "sha256" for item in result["keys"])
+        assert raw_key_one not in serialized
+        assert raw_key_two not in serialized
+
+    def test_model_key_manifest_check_masks_custom_fingerprint(self):
+        raw_key = "sk-unit-secret-fingerprint"
+
+        result = evaluate_model_key_manifest({
+            "keys": [
+                {"api_key": raw_key, "fingerprint": raw_key},
+            ]
+        })
+        serialized = str(result)
+
+        assert result["ok"] is True
+        assert result["key_count"] == 1
+        assert result["keys"][0]["fingerprint_format"] == "custom_masked"
+        assert result["keys"][0]["fingerprint"] != raw_key
+        assert raw_key not in serialized
+
+    def test_model_key_manifest_check_rejects_duplicate_fingerprints_without_raw_keys(self):
+        raw_key = "sk-unit-duplicate-secret"
+
+        result = evaluate_model_key_manifest({
+            "keys": [
+                {"api_key": raw_key},
+                {"key": raw_key},
+            ]
+        })
+
+        assert result["ok"] is False
+        assert result["key_count"] == 2
+        assert result["unique_fingerprint_count"] == 1
+        assert result["duplicate_fingerprint_count"] == 1
+        assert raw_key not in str(result)
+
+    def test_model_key_manifest_command_reads_file_without_printing_raw_key(self, tmp_path):
+        raw_key = "sk-unit-file-secret"
+        manifest = tmp_path / "keys.json"
+        manifest.write_text('{"keys":[{"api_key":"sk-unit-file-secret"}]}', encoding="utf-8")
+
+        result = asyncio.run(_run(SimpleNamespace(command="model-key-manifest-check", key_manifest_file=str(manifest))))
+
+        assert result["ok"] is True
+        assert result["key_count"] == 1
+        assert raw_key not in str(result)
 
     def test_parser_accepts_model_sample_retention(self):
         parser = build_parser()
