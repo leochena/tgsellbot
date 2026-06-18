@@ -24,6 +24,9 @@ Model Lab, and platform operations layer.
 - `scripts/platform_ops.py platform-launch-check` validates the public Mini App
   URL and feature-flag state before `platform_api_enabled` or
   `platform_menu_enabled` are switched on.
+- `scripts/platform_ops.py platform-cert-check` validates the Mini App public
+  TLS certificate age, plus optional certbot certificate inventory and renewal
+  timer wiring for server closeout checks.
 - Public Mini App HTTPS entry is live on the Virginia server.
   - Cloudflare DNS: `tg.1so.org A 47.253.251.141`, DNS-only.
   - Nginx reverse proxy: public `80/443` to `127.0.0.1:9090`.
@@ -142,7 +145,7 @@ Model Lab, and platform operations layer.
      `https://tg.1so.org/platform/app` inside Telegram.
    - Keep the Cloudflare token rotated after DNS setup.
    - Keep certificate renewal monitoring in the server closeout checklist using
-     `certbot certificates -d tg.1so.org` and `systemctl list-timers certbot*`.
+     `platform-cert-check --certbot --systemd-timers`.
 
 2. Ledger source-of-truth decision
    - Keep current `users.balance` and `users.points_balance` fields
@@ -187,10 +190,11 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 94 tests, including Bot WebApp menu markup validation, the ledger cutover gate, the Model Lab key manifest check, and Model Lab job/report list pagination.
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 669 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 97 tests, including Bot WebApp menu markup validation, the ledger cutover gate, the Model Lab key manifest check, Model Lab job/report list pagination, and the Mini App certificate renewal gate.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 672 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
+  - `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-cert-check --url https://tg.1so.org/platform/app --min-valid-days 21 --timeout 5` passed with certificate expiry `2026-09-16T16:45:44+00:00` and 89 days remaining.
   - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=model_lab`
     loaded the Model Lab panel, confirmed task/report paging controls, disabled
     paging without Telegram initData, no `localStorage`, and no console errors.

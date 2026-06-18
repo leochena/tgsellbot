@@ -57,6 +57,7 @@ This audit converts `tgsellbot_AI频道与模型验证平台升级开发计划�
   - operator batch drain command and disabled-by-default systemd timer templates for claimable Model Lab jobs using an ephemeral JSON key manifest,
   - isolated Worker runner and sudoers templates that let the drain service execute `platform_worker.py` as `tgsellbot-worker` without inheriting main app secrets or database settings,
   - launch-gate Bot menu markup validation that renders the configured main menu and verifies the channel, Model Lab, and contribution buttons are WebApp buttons for `/platform/app` tabs,
+  - Mini App public TLS certificate and certbot renewal checks through `platform-cert-check`,
   - Model Lab run and relay availability sample retention command plus daily systemd timer templates,
   - redacted `platform_ops_run` audit events plus Platform Dashboard readouts for latest Model Lab drain and retention outcomes,
   - model-test job status reads, report creation, report reads, public/unlisted report entry points, recent run history, and visibility changes with limitation wording plus Mini App report summary/timeline/run-history/share rendering for public and unlisted reports only,
@@ -183,6 +184,9 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
   enabling Mini App buttons. With an empty value, feature-flagged platform menu
   entries fall back to safe Bot placeholder messages.
   Unsafe URLs fall back to callback buttons automatically.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-cert-check --url https://tg.1so.org/platform/app --certbot --systemd-timers`
+  checks the public TLS certificate, minimum days remaining, certbot certificate
+  inventory, and certbot renewal timer without printing private key material.
 
 ## Sprint Backlog
 
@@ -243,8 +247,9 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 22 tests.
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_api.py::TestPlatformAPI::test_platform_mini_app_page_uses_telegram_init_data_and_safe_entrypoints tests\test_platform_api.py::TestPlatformAPI::test_public_report_page_uses_public_api_without_telegram_init_data -q` passed: 2 tests.
-- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 94 tests, including Model Lab job/report list pagination.
-- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 669 tests.
+- `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 97 tests, including Model Lab job/report list pagination and the Mini App certificate renewal gate.
+- `.\.venv312\Scripts\python.exe -m pytest -q` passed: 672 tests.
+- `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-cert-check --url https://tg.1so.org/platform/app --min-valid-days 21 --timeout 5` passed with certificate expiry `2026-09-16T16:45:44+00:00` and 89 days remaining.
 - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=model_lab`
   loaded the Mini App shell with Model Lab active, task/report paging controls,
   disabled paging without Telegram initData, no `localStorage`, and no console

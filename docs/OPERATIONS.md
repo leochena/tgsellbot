@@ -105,6 +105,7 @@ Model Lab, and contribution tabs, and reports the current platform feature flags
 cd /opt/tgsellbot
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-launch-check
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-launch-check --url https://your-domain.example/platform/app --smoke
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-cert-check --url https://your-domain.example/platform/app --certbot --systemd-timers
 ```
 
 Only enable `platform_api_enabled` after the public URL smoke passes. Only enable `platform_menu_enabled` after the Bot
@@ -127,6 +128,7 @@ curl -fsS https://tg.1so.org/health
 curl -fsS -o /tmp/platform_app.html https://tg.1so.org/platform/app
 cd /opt/tgsellbot
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-launch-check --smoke
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-cert-check --certbot --systemd-timers
 systemctl status nginx --no-pager
 systemctl list-timers 'certbot*'
 certbot certificates -d tg.1so.org

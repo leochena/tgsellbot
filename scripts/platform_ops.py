@@ -4,6 +4,9 @@ import argparse
 import asyncio
 import json
 import re
+import socket
+import ssl
+import subprocess
 import sys
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -22,6 +25,7 @@ TRUTHY = {"1", "true", "yes", "on"}
 MINI_APP_PATH = "/platform/app"
 AUDITED_COMMANDS = {"model-test-drain", "model-sample-retention"}
 EXPECTED_PLATFORM_MENU_TABS = ("channels", "model_lab", "contribute")
+CERT_DATE_FORMAT = "%b %d %H:%M:%S %Y %Z"
 LEDGER_CUTOVER_ROLLBACK_PLAN = [
     "Keep users.balance and users.points_balance as the read source until a separate release explicitly switches reads.",
     "If a future switch misbehaves, route reads back to users.balance/users.points_balance and leave ledger rows append-only.",
@@ -147,6 +151,58 @@ def evaluate_platform_launch_readiness(
             smoke=smoke,
             menu_markup_ready=menu_markup_ready,
         ),
+    }
+
+
+def evaluate_platform_certificate_readiness(
+        target: dict[str, Any],
+        certificate: dict[str, Any] | None,
+        *,
+        certbot: dict[str, Any] | None = None,
+        systemd_timers: dict[str, Any] | None = None,
+        min_valid_days: int = 21,
+) -> dict[str, Any]:
+    target_ok = bool(target.get("ok"))
+    certificate = certificate or {"ok": False, "error": "certificate probe was not run."}
+    cert_days = int(certificate.get("days_remaining") or 0)
+    certificate_ok = bool(certificate.get("ok")) and cert_days >= int(min_valid_days)
+    certbot_ok = True if certbot is None else bool(certbot.get("ok"))
+    timers_ok = True if systemd_timers is None else bool(systemd_timers.get("ok"))
+
+    next_actions: list[str] = []
+    if not target_ok:
+        next_actions.append("Set platform_webapp_url to a public HTTPS /platform/app URL before certificate checks.")
+    if not certificate.get("ok"):
+        next_actions.append("Fix the public TLS certificate or nginx HTTPS entry before launch.")
+    elif cert_days < int(min_valid_days):
+        next_actions.append(
+            f"Renew the public TLS certificate; only {cert_days} days remain and the minimum is {int(min_valid_days)}."
+        )
+    if certbot is not None and not certbot_ok:
+        next_actions.append("Fix certbot certificate inventory for the Mini App domain on the server.")
+    if systemd_timers is not None and not timers_ok:
+        next_actions.append("Enable or repair the certbot renewal timer on the server.")
+    if not next_actions:
+        next_actions.append("Certificate and renewal checks pass for the Mini App public entry.")
+
+    return {
+        "ok": target_ok and certificate_ok and certbot_ok and timers_ok,
+        "target": {
+            "url": target.get("url", ""),
+            "host": target.get("host", ""),
+            "port": target.get("port", 443),
+            "error": target.get("error", ""),
+        },
+        "checks": {
+            "public_tls_certificate": {
+                **certificate,
+                "ok": certificate_ok,
+                "minimum_valid_days": int(min_valid_days),
+            },
+            "certbot_certificate_inventory": certbot if certbot is not None else {"ok": True, "skipped": True},
+            "certbot_renewal_timer": systemd_timers if systemd_timers is not None else {"ok": True, "skipped": True},
+        },
+        "next_actions": next_actions,
     }
 
 
@@ -382,6 +438,160 @@ def _smoke_platform_webapp(url: str, timeout: float) -> dict[str, Any]:
     }
 
 
+def _platform_certificate_target_from_url(url: str) -> dict[str, Any]:
+    from bot.misc.url_safety import UnsafeURL, normalize_public_https_url
+
+    if not url:
+        return {"ok": False, "url": "", "host": "", "port": 443, "error": "platform_webapp_url is required."}
+    try:
+        safe_url = normalize_public_https_url(url, allow_path=True)
+    except UnsafeURL as exc:
+        return {"ok": False, "url": url, "host": "", "port": 443, "error": str(exc)}
+    parts = urlsplit(safe_url.normalized)
+    host = parts.hostname or ""
+    return {
+        "ok": bool(host),
+        "url": safe_url.normalized,
+        "host": host,
+        "port": int(parts.port or 443),
+        "error": "" if host else "URL host is required.",
+    }
+
+
+def _probe_https_certificate(host: str, port: int, timeout: float, *, now: datetime | None = None) -> dict[str, Any]:
+    if not host:
+        return {"ok": False, "host": "", "port": port, "error": "host is required."}
+    now = now or datetime.now(timezone.utc)
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((host, int(port)), timeout=timeout) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as tls:
+                cert = tls.getpeercert()
+        not_after_raw = str(cert.get("notAfter") or "")
+        expires_at = datetime.strptime(not_after_raw, CERT_DATE_FORMAT).replace(tzinfo=timezone.utc)
+    except Exception as exc:  # pragma: no cover - exercised by production smoke, not unit tests.
+        return {"ok": False, "host": host, "port": int(port), "error": str(exc)}
+
+    seconds_remaining = int((expires_at - now).total_seconds())
+    subject_alt_names = [
+        str(value)
+        for key, value in cert.get("subjectAltName", ())
+        if key == "DNS"
+    ]
+    return {
+        "ok": seconds_remaining > 0,
+        "host": host,
+        "port": int(port),
+        "not_after": expires_at.isoformat(),
+        "days_remaining": seconds_remaining // 86400,
+        "subject_common_name": _certificate_name_value(cert.get("subject", ()), "commonName"),
+        "issuer_common_name": _certificate_name_value(cert.get("issuer", ()), "commonName"),
+        "subject_alt_names": subject_alt_names,
+        "error": "",
+    }
+
+
+def _certificate_name_value(name: Any, key: str) -> str:
+    for group in name or ():
+        for item_key, value in group:
+            if item_key == key:
+                return str(value)
+    return ""
+
+
+def _run_certbot_certificate_check(domain: str, timeout: float) -> dict[str, Any]:
+    command = ["certbot", "certificates", "-d", domain]
+    completed = _run_read_only_command(command, timeout=timeout)
+    if completed["returncode"] != 0:
+        return {
+            "ok": False,
+            "domain": domain,
+            "domain_found": False,
+            "domains": [],
+            "expiry": "",
+            "returncode": completed["returncode"],
+            "error": completed["error"] or "certbot certificates failed.",
+        }
+
+    lines = completed["stdout"].splitlines()
+    domains: list[str] = []
+    expiry = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Domains:"):
+            domains.extend(stripped.split(":", 1)[1].split())
+        elif stripped.startswith("Expiry Date:"):
+            expiry = stripped.split(":", 1)[1].strip()
+    domain_found = domain in domains
+    return {
+        "ok": domain_found,
+        "domain": domain,
+        "domain_found": domain_found,
+        "domains": domains,
+        "expiry": expiry,
+        "returncode": completed["returncode"],
+        "error": "" if domain_found else "certbot did not report the Mini App domain.",
+    }
+
+
+def _run_certbot_timer_check(timeout: float) -> dict[str, Any]:
+    completed = _run_read_only_command(
+        ["systemctl", "list-timers", "certbot*", "snap.certbot*", "--all", "--no-pager"],
+        timeout=timeout,
+    )
+    if completed["returncode"] != 0:
+        return {
+            "ok": False,
+            "timer_count": 0,
+            "timers": [],
+            "returncode": completed["returncode"],
+            "error": completed["error"] or "systemctl list-timers failed.",
+        }
+
+    timers = [
+        line.strip()[:240]
+        for line in completed["stdout"].splitlines()
+        if "certbot" in line.lower() and ".timer" in line
+    ]
+    return {
+        "ok": bool(timers),
+        "timer_count": len(timers),
+        "timers": timers,
+        "returncode": completed["returncode"],
+        "error": "" if timers else "No certbot renewal timer was listed.",
+    }
+
+
+def _run_read_only_command(command: list[str], *, timeout: float) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return {"returncode": 127, "stdout": "", "stderr": "", "error": str(exc)}
+    except subprocess.TimeoutExpired:
+        return {"returncode": 124, "stdout": "", "stderr": "", "error": f"Command timed out after {timeout} seconds."}
+    stderr = (completed.stderr or "").strip().replace("\n", " ")[:500]
+    return {
+        "returncode": int(completed.returncode),
+        "stdout": completed.stdout or "",
+        "stderr": stderr,
+        "error": stderr if completed.returncode else "",
+    }
+
+
+async def _platform_certificate_url(url_override: str | None = None) -> str:
+    if url_override is not None:
+        return url_override
+    from bot.database.methods.group_invites import get_bot_setting
+
+    return await get_bot_setting("platform_webapp_url", "")
+
+
 async def _platform_launch_settings(url_override: str | None = None) -> dict[str, str]:
     from bot.database.methods.group_invites import get_bot_setting
 
@@ -477,6 +687,25 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         settings = await _platform_launch_settings(args.url)
         smoke = _smoke_platform_webapp(settings["platform_webapp_url"], args.timeout) if args.smoke else None
         return evaluate_platform_launch_readiness(settings, smoke=smoke)
+    if args.command == "platform-cert-check":
+        url = await _platform_certificate_url(args.url)
+        target = _platform_certificate_target_from_url(url)
+        certificate = None
+        certbot = None
+        systemd_timers = None
+        if target.get("ok"):
+            certificate = _probe_https_certificate(target["host"], target["port"], args.timeout)
+            if args.certbot:
+                certbot = _run_certbot_certificate_check(target["host"], args.timeout)
+            if args.systemd_timers:
+                systemd_timers = _run_certbot_timer_check(args.timeout)
+        return evaluate_platform_certificate_readiness(
+            target,
+            certificate,
+            certbot=certbot,
+            systemd_timers=systemd_timers,
+            min_valid_days=args.min_valid_days,
+        )
     raise ValueError(f"unknown command: {args.command}")
 
 
@@ -607,6 +836,16 @@ def build_parser() -> argparse.ArgumentParser:
     launch.add_argument("--url", default=None, help="Override bot_settings.platform_webapp_url for a dry-run check.")
     launch.add_argument("--smoke", action="store_true", help="Fetch the public Mini App URL and verify the HTML entrypoint.")
     launch.add_argument("--timeout", type=float, default=5.0, help="HTTP timeout in seconds for --smoke.")
+
+    cert = subparsers.add_parser(
+        "platform-cert-check",
+        help="Check the Mini App public TLS certificate and optional certbot renewal wiring.",
+    )
+    cert.add_argument("--url", default=None, help="Override bot_settings.platform_webapp_url for a dry-run check.")
+    cert.add_argument("--min-valid-days", type=int, default=21, help="Minimum acceptable TLS certificate days remaining.")
+    cert.add_argument("--timeout", type=float, default=5.0, help="Network or command timeout in seconds.")
+    cert.add_argument("--certbot", action="store_true", help="Also run certbot certificates -d <host> and summarize it.")
+    cert.add_argument("--systemd-timers", action="store_true", help="Also verify a certbot renewal timer is listed by systemd.")
     return parser
 
 

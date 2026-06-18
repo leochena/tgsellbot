@@ -12,6 +12,7 @@ from scripts.platform_ops import (
     build_parser,
     evaluate_ledger_cutover_readiness,
     evaluate_model_key_manifest,
+    evaluate_platform_certificate_readiness,
     evaluate_platform_launch_readiness,
 )
 from scripts.platform_worker import build_parser as build_worker_parser
@@ -362,6 +363,125 @@ class TestPlatformOpsScript:
         assert live["checks"]["bot_menu_webapp_markup"]["fallback_callbacks"] == []
         assert unsafe_menu["ok"] is False
         assert "Disable platform_menu_enabled" in unsafe_menu["next_actions"][0]
+
+    def test_parser_accepts_platform_cert_check(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "platform-cert-check",
+            "--url",
+            "https://tg.1so.org/platform/app",
+            "--min-valid-days",
+            "45",
+            "--timeout",
+            "2",
+            "--certbot",
+            "--systemd-timers",
+        ])
+
+        assert args.command == "platform-cert-check"
+        assert args.url == "https://tg.1so.org/platform/app"
+        assert args.min_valid_days == 45
+        assert args.timeout == 2
+        assert args.certbot is True
+        assert args.systemd_timers is True
+
+    def test_platform_cert_check_requires_valid_tls_and_renewal_wiring(self):
+        good = evaluate_platform_certificate_readiness(
+            {"ok": True, "url": "https://tg.1so.org/platform/app", "host": "tg.1so.org", "port": 443},
+            {
+                "ok": True,
+                "host": "tg.1so.org",
+                "port": 443,
+                "not_after": "2026-09-16T00:00:00+00:00",
+                "days_remaining": 89,
+                "subject_alt_names": ["tg.1so.org"],
+                "error": "",
+            },
+            certbot={"ok": True, "domain": "tg.1so.org", "domain_found": True},
+            systemd_timers={"ok": True, "timer_count": 1, "timers": ["certbot.timer"]},
+            min_valid_days=30,
+        )
+        expiring = evaluate_platform_certificate_readiness(
+            {"ok": True, "url": "https://tg.1so.org/platform/app", "host": "tg.1so.org", "port": 443},
+            {
+                "ok": True,
+                "host": "tg.1so.org",
+                "port": 443,
+                "not_after": "2026-06-25T00:00:00+00:00",
+                "days_remaining": 6,
+                "subject_alt_names": ["tg.1so.org"],
+                "error": "",
+            },
+            min_valid_days=30,
+        )
+        missing_timer = evaluate_platform_certificate_readiness(
+            {"ok": True, "url": "https://tg.1so.org/platform/app", "host": "tg.1so.org", "port": 443},
+            {
+                "ok": True,
+                "host": "tg.1so.org",
+                "port": 443,
+                "not_after": "2026-09-16T00:00:00+00:00",
+                "days_remaining": 89,
+                "subject_alt_names": ["tg.1so.org"],
+                "error": "",
+            },
+            systemd_timers={"ok": False, "timer_count": 0, "error": "No certbot renewal timer was listed."},
+            min_valid_days=30,
+        )
+
+        assert good["ok"] is True
+        assert good["checks"]["public_tls_certificate"]["ok"] is True
+        assert good["checks"]["certbot_certificate_inventory"]["ok"] is True
+        assert good["checks"]["certbot_renewal_timer"]["ok"] is True
+        assert expiring["ok"] is False
+        assert expiring["checks"]["public_tls_certificate"]["ok"] is False
+        assert "Renew the public TLS certificate" in expiring["next_actions"][0]
+        assert missing_timer["ok"] is False
+        assert "certbot renewal timer" in missing_timer["next_actions"][0]
+
+    async def test_platform_cert_check_command_uses_public_url_and_optional_server_checks(self, monkeypatch):
+        seen = {}
+
+        def fake_probe(host, port, timeout):
+            seen["probe"] = {"host": host, "port": port, "timeout": timeout}
+            return {
+                "ok": True,
+                "host": host,
+                "port": port,
+                "not_after": "2026-09-16T00:00:00+00:00",
+                "days_remaining": 89,
+                "subject_alt_names": [host],
+                "error": "",
+            }
+
+        def fake_certbot(domain, timeout):
+            seen["certbot"] = {"domain": domain, "timeout": timeout}
+            return {"ok": True, "domain": domain, "domain_found": True}
+
+        def fake_timers(timeout):
+            seen["timers"] = {"timeout": timeout}
+            return {"ok": True, "timer_count": 1, "timers": ["certbot.timer"]}
+
+        monkeypatch.setattr("scripts.platform_ops._probe_https_certificate", fake_probe)
+        monkeypatch.setattr("scripts.platform_ops._run_certbot_certificate_check", fake_certbot)
+        monkeypatch.setattr("scripts.platform_ops._run_certbot_timer_check", fake_timers)
+
+        result = await _run(SimpleNamespace(
+            command="platform-cert-check",
+            url="https://tg.1so.org/platform/app",
+            min_valid_days=30,
+            timeout=2,
+            certbot=True,
+            systemd_timers=True,
+        ))
+
+        assert result["ok"] is True
+        assert result["target"]["host"] == "tg.1so.org"
+        assert seen == {
+            "probe": {"host": "tg.1so.org", "port": 443, "timeout": 2},
+            "certbot": {"domain": "tg.1so.org", "timeout": 2},
+            "timers": {"timeout": 2},
+        }
 
     def test_parse_now_normalizes_naive_datetime_to_utc(self):
         parsed = _parse_now("2026-06-17T00:00:00")

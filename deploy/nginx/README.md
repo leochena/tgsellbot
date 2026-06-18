@@ -43,6 +43,7 @@ curl -fsS -o /tmp/platform_app.html https://tg.1so.org/platform/app
 grep -q 'telegram-web-app.js' /tmp/platform_app.html
 cd /opt/tgsellbot
 /opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-launch-check --smoke
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-cert-check --certbot --systemd-timers
 certbot certificates -d tg.1so.org
 ```
 
