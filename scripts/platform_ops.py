@@ -10,10 +10,12 @@ from typing import Any
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+load_dotenv(ROOT / ".env", encoding="utf-8")
 
 TRUTHY = {"1", "true", "yes", "on"}
 MINI_APP_PATH = "/platform/app"
