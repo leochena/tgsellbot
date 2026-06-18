@@ -109,6 +109,28 @@ class TestPlatformOpsScript:
         assert args.max_concurrency == 1
         assert args.max_tokens == 16
 
+    def test_parser_accepts_model_sample_retention(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "model-sample-retention",
+            "--run-retention-days",
+            "120",
+            "--availability-retention-days",
+            "45",
+            "--limit",
+            "250",
+            "--dry-run",
+            "--now",
+            "2026-06-19T00:00:00+00:00",
+        ])
+
+        assert args.command == "model-sample-retention"
+        assert args.run_retention_days == 120
+        assert args.availability_retention_days == 45
+        assert args.limit == 250
+        assert args.dry_run is True
+        assert args.now == "2026-06-19T00:00:00+00:00"
+
     def test_parser_accepts_platform_launch_check(self):
         parser = build_parser()
         args = parser.parse_args([
@@ -197,6 +219,32 @@ class TestPlatformOpsScript:
         assert "Unit=tgsellbot-invite-settle.service" in timer
         assert "OnUnitActiveSec=1h" in timer
         assert "Persistent=true" in timer
+
+    def test_model_lab_systemd_templates_are_bounded_and_secret_safe(self):
+        root = Path(__file__).resolve().parents[1]
+        drain_service = (root / "deploy" / "systemd" / "tgsellbot-model-test-drain.service").read_text(encoding="utf-8")
+        drain_timer = (root / "deploy" / "systemd" / "tgsellbot-model-test-drain.timer").read_text(encoding="utf-8")
+        retention_service = (root / "deploy" / "systemd" / "tgsellbot-model-sample-retention.service").read_text(encoding="utf-8")
+        retention_timer = (root / "deploy" / "systemd" / "tgsellbot-model-sample-retention.timer").read_text(encoding="utf-8")
+
+        assert "Type=oneshot" in drain_service
+        assert "scripts/platform_ops.py model-test-drain" in drain_service
+        assert "ExecCondition=/usr/bin/test -s ${MODEL_TEST_KEY_MANIFEST}" in drain_service
+        assert "--limit 10" in drain_service
+        assert "--max-concurrency 2" in drain_service
+        assert "api-key" not in drain_service.lower()
+        assert "sk-" not in drain_service.lower()
+        assert "bearer" not in drain_service.lower()
+        assert "Unit=tgsellbot-model-test-drain.service" in drain_timer
+        assert "OnUnitActiveSec=5min" in drain_timer
+        assert "Persistent=false" in drain_timer
+        assert "scripts/platform_ops.py model-sample-retention" in retention_service
+        assert "--run-retention-days 90" in retention_service
+        assert "--availability-retention-days 90" in retention_service
+        assert "--limit 5000" in retention_service
+        assert "Unit=tgsellbot-model-sample-retention.service" in retention_timer
+        assert "OnUnitActiveSec=1d" in retention_timer
+        assert "Persistent=true" in retention_timer
 
 
 class TestPlatformWorkerScript:

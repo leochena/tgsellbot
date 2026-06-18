@@ -34,6 +34,7 @@ from bot.database.methods.platform import (
     add_relay_feedback,
     owner_dashboard,
     platform_dashboard_metrics,
+    prune_model_lab_samples,
     record_fraud_event,
     record_channel_interaction,
     record_model_test_run,
@@ -1378,6 +1379,70 @@ class TestRelayAndModelLabFoundation:
         assert missing_secret not in str(result)
         assert any(item["job_id"] == matched["id"] and item["status"] == "completed" for item in result["results"])
         assert any(item["job_id"] == missing["id"] and item["status"] == "missing_key" for item in result["results"])
+
+    async def test_model_lab_sample_retention_prunes_old_runs_and_availability(self, user_factory):
+        await user_factory(telegram_id=230096)
+        now = datetime.datetime(2026, 6, 19, tzinfo=datetime.timezone.utc)
+        old_at = now - datetime.timedelta(days=120)
+        fresh_at = now - datetime.timedelta(days=10)
+        job = await create_model_test_job(
+            {
+                "endpoint": "https://retention-test.example.com/v1",
+                "protocol": "openai-compatible",
+                "requested_model": "gpt-retention",
+                "api_key": "sk-retention-secret",
+                "idempotency_key": "job-230096-retention",
+            },
+            user_id=230096,
+        )
+        old_run = await record_model_test_run(job["id"], "retention-worker", "completed", duration_ms=100)
+        fresh_run = await record_model_test_run(job["id"], "retention-worker", "completed", duration_ms=100)
+        relay = await submit_relay_provider(
+            {
+                "name": "Retention Relay",
+                "base_url": "https://retention-relay.example.com/v1",
+                "protocol": "openai-compatible",
+            },
+            submitter_id=230096,
+        )
+        await review_relay_provider(relay["id"], reviewer_id=230096, status="approved", risk_status="normal")
+        old_sample = await record_relay_availability_sample(relay["id"], status="failed", latency_ms=300)
+        fresh_sample = await record_relay_availability_sample(relay["id"], status="available", latency_ms=120)
+
+        from bot.database.main import Database
+        from bot.database.models.main import ModelTestRuns, RelayAvailabilitySamples
+        from sqlalchemy import select
+
+        async with Database().session() as s:
+            rows = (await s.execute(
+                select(ModelTestRuns).where(ModelTestRuns.id.in_([old_run["id"], fresh_run["id"]]))
+            )).scalars().all()
+            samples = (await s.execute(
+                select(RelayAvailabilitySamples).where(RelayAvailabilitySamples.id.in_([old_sample["id"], fresh_sample["id"]]))
+            )).scalars().all()
+            for row in rows:
+                row.created_at = old_at if row.id == old_run["id"] else fresh_at
+            for sample in samples:
+                sample.checked_at = old_at if sample.id == old_sample["id"] else fresh_at
+                sample.created_at = sample.checked_at
+
+        preview = await prune_model_lab_samples(now=now, run_retention_days=90, availability_retention_days=90, dry_run=True)
+        result = await prune_model_lab_samples(now=now, run_retention_days=90, availability_retention_days=90)
+
+        async with Database().session() as s:
+            remaining_run_ids = set((await s.execute(select(ModelTestRuns.id))).scalars().all())
+            remaining_sample_ids = set((await s.execute(select(RelayAvailabilitySamples.id))).scalars().all())
+
+        assert preview["dry_run"] is True
+        assert preview["model_test_runs"]["matched"] == 1
+        assert preview["model_test_runs"]["deleted"] == 0
+        assert preview["relay_availability_samples"]["matched"] == 1
+        assert result["model_test_runs"]["deleted"] == 1
+        assert result["relay_availability_samples"]["deleted"] == 1
+        assert old_run["id"] not in remaining_run_ids
+        assert fresh_run["id"] in remaining_run_ids
+        assert old_sample["id"] not in remaining_sample_ids
+        assert fresh_sample["id"] in remaining_sample_ids
 
     async def test_platform_dashboard_metrics_aggregate_current_foundation_without_fake_unavailable_values(self, user_factory):
         await user_factory(telegram_id=230006)

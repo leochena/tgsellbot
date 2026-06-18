@@ -1,0 +1,12 @@
+[Unit]
+Description=Run TGSellBot Model Lab sample retention daily
+
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=1d
+RandomizedDelaySec=30min
+Persistent=true
+Unit=tgsellbot-model-sample-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=TGSellBot Model Lab sample retention
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tgsellbot
+EnvironmentFile=/opt/tgsellbot/.env
+ExecStart=/opt/tgsellbot/.venv/bin/python /opt/tgsellbot/scripts/platform_ops.py model-sample-retention --run-retention-days 90 --availability-retention-days 90 --limit 5000
+User=tgsellbot
+Group=tgsellbot
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal

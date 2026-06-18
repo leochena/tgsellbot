@@ -131,6 +131,44 @@ systemctl list-timers 'certbot*'
 certbot certificates -d tg.1so.org
 ```
 
+## Model Lab Batch Drain And Retention
+
+Run a single queued Model Lab job only with a one-time key supplied through
+stdin or a local file:
+
+```bash
+cd /opt/tgsellbot
+cat ./one-time-key.txt | ./.venv/bin/python scripts/platform_ops.py model-test-run <job_id>
+```
+
+For operator batch drain, keep the manifest only on the server, for example
+`/etc/tgsellbot/model-test-keys.json`, owned by the service user and mode
+`0600`. Do not commit it, print it, or pass raw keys on the command line. The
+systemd drain template skips execution while the manifest file is missing or
+empty:
+
+```bash
+sudo install -d -m 0700 -o tgsellbot -g tgsellbot /etc/tgsellbot
+sudo install -m 0600 -o tgsellbot -g tgsellbot /path/to/model-test-keys.json /etc/tgsellbot/model-test-keys.json
+sudo cp deploy/systemd/tgsellbot-model-test-drain.service /etc/systemd/system/
+sudo cp deploy/systemd/tgsellbot-model-test-drain.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tgsellbot-model-test-drain.timer
+```
+
+Only enable the drain timer after the isolated Worker trust boundary is
+accepted for production use. For sample retention, preview first and then
+install the daily cleanup timer:
+
+```bash
+cd /opt/tgsellbot
+./.venv/bin/python scripts/platform_ops.py model-sample-retention --dry-run
+sudo cp deploy/systemd/tgsellbot-model-sample-retention.service /etc/systemd/system/
+sudo cp deploy/systemd/tgsellbot-model-sample-retention.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tgsellbot-model-sample-retention.timer
+```
+
 You can also use the Windows helper after `.env` is filled and PostgreSQL is running:
 
 ```powershell

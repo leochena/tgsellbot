@@ -1,0 +1,18 @@
+[Unit]
+Description=TGSellBot Model Lab operator batch drain
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tgsellbot
+EnvironmentFile=/opt/tgsellbot/.env
+Environment=MODEL_TEST_KEY_MANIFEST=/etc/tgsellbot/model-test-keys.json
+ExecCondition=/usr/bin/test -s ${MODEL_TEST_KEY_MANIFEST}
+ExecStart=/opt/tgsellbot/.venv/bin/python /opt/tgsellbot/scripts/platform_ops.py model-test-drain --key-manifest-file ${MODEL_TEST_KEY_MANIFEST} --worker-id platform-drain --limit 10 --process-timeout 90 --worker-timeout 20 --max-response-bytes 262144 --max-redirects 2 --max-concurrency 2 --max-tokens 64
+User=tgsellbot
+Group=tgsellbot
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal

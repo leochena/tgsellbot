@@ -250,6 +250,16 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             max_concurrency=args.max_concurrency,
             max_tokens=args.max_tokens,
         )
+    if args.command == "model-sample-retention":
+        from bot.database.methods.platform import prune_model_lab_samples
+
+        return await prune_model_lab_samples(
+            run_retention_days=args.run_retention_days,
+            availability_retention_days=args.availability_retention_days,
+            limit=args.limit,
+            dry_run=args.dry_run,
+            now=_parse_now(args.now),
+        )
     if args.command == "platform-launch-check":
         settings = await _platform_launch_settings(args.url)
         smoke = _smoke_platform_webapp(settings["platform_webapp_url"], args.timeout) if args.smoke else None
@@ -305,6 +315,16 @@ def build_parser() -> argparse.ArgumentParser:
     drain.add_argument("--max-redirects", type=int, default=2)
     drain.add_argument("--max-concurrency", type=int, default=2)
     drain.add_argument("--max-tokens", type=int, default=64)
+
+    retention = subparsers.add_parser(
+        "model-sample-retention",
+        help="Prune old Model Lab run and relay availability samples.",
+    )
+    retention.add_argument("--run-retention-days", type=int, default=90)
+    retention.add_argument("--availability-retention-days", type=int, default=90)
+    retention.add_argument("--limit", type=int, default=5000)
+    retention.add_argument("--dry-run", action="store_true")
+    retention.add_argument("--now", default=None, help="ISO timestamp for deterministic dry runs/tests.")
 
     launch = subparsers.add_parser(
         "platform-launch-check",

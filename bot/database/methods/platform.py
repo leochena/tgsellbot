@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlunsplit
 
 import aiohttp
-from sqlalchemy import Integer, and_, func, or_, select
+from sqlalchemy import Integer, and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from bot.database import Database
@@ -1949,6 +1949,63 @@ async def record_relay_availability_sample(
         await s.flush()
         result = _relay_availability_sample_to_dict(sample)
     return result
+
+
+async def prune_model_lab_samples(
+        *,
+        run_retention_days: int = 90,
+        availability_retention_days: int = 90,
+        limit: int = 5000,
+        dry_run: bool = False,
+        now: datetime.datetime | None = None,
+) -> dict[str, Any]:
+    run_retention_days = max(int(run_retention_days or 90), 1)
+    availability_retention_days = max(int(availability_retention_days or 90), 1)
+    limit = min(max(int(limit or 5000), 1), 10000)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
+    else:
+        now = now.astimezone(datetime.timezone.utc)
+    run_cutoff = now - datetime.timedelta(days=run_retention_days)
+    availability_cutoff = now - datetime.timedelta(days=availability_retention_days)
+
+    async with Database().session() as s:
+        run_ids = list((await s.execute(
+            select(ModelTestRuns.id)
+            .where(ModelTestRuns.created_at < run_cutoff)
+            .order_by(ModelTestRuns.created_at.asc(), ModelTestRuns.id.asc())
+            .limit(limit)
+        )).scalars().all())
+        availability_ids = list((await s.execute(
+            select(RelayAvailabilitySamples.id)
+            .where(RelayAvailabilitySamples.checked_at < availability_cutoff)
+            .order_by(RelayAvailabilitySamples.checked_at.asc(), RelayAvailabilitySamples.id.asc())
+            .limit(limit)
+        )).scalars().all())
+
+        if not dry_run:
+            if run_ids:
+                await s.execute(delete(ModelTestRuns).where(ModelTestRuns.id.in_(run_ids)))
+            if availability_ids:
+                await s.execute(delete(RelayAvailabilitySamples).where(RelayAvailabilitySamples.id.in_(availability_ids)))
+
+    return {
+        "dry_run": bool(dry_run),
+        "limit": limit,
+        "run_retention_days": run_retention_days,
+        "availability_retention_days": availability_retention_days,
+        "run_cutoff": run_cutoff.isoformat(),
+        "availability_cutoff": availability_cutoff.isoformat(),
+        "model_test_runs": {
+            "matched": len(run_ids),
+            "deleted": 0 if dry_run else len(run_ids),
+        },
+        "relay_availability_samples": {
+            "matched": len(availability_ids),
+            "deleted": 0 if dry_run else len(availability_ids),
+        },
+    }
 
 
 async def create_model_test_report(job_id: int, data: dict[str, Any]) -> dict[str, Any]:

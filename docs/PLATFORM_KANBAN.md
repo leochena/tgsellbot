@@ -82,6 +82,10 @@ Model Lab, and platform operations layer.
 - Platform Dashboard now returns stable operating thresholds and alerts for
   invite retention, ban events, appeal volume, and reviewer workload, and the
   review workspace renders the alert count alongside aggregate metrics.
+- Model Lab production wiring now has systemd templates for operator batch
+  drain and daily sample retention, plus a `model-sample-retention` ops command
+  that prunes old Model Lab run and relay availability samples with dry-run
+  support.
 
 ## In Progress
 
@@ -120,8 +124,9 @@ Model Lab, and platform operations layer.
 
 5. Model Lab P0 production wiring
    - Isolate Worker deployment from the main bot trust boundary.
-   - Add scheduler/queue wiring for operator batch drain.
-   - Add retention and monitoring for run and relay availability samples.
+   - Enable the batch-drain timer only after the server-local key manifest and
+     isolated Worker deployment boundary are approved.
+   - Add monitoring readouts for scheduled drain and retention job outcomes.
 
 6. Dashboard hardening
    - Replace unavailable metric placeholders only when collection is live.

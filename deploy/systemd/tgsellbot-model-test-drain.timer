@@ -1,0 +1,12 @@
+[Unit]
+Description=Run TGSellBot Model Lab batch drain every five minutes
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=5min
+RandomizedDelaySec=1min
+Persistent=false
+Unit=tgsellbot-model-test-drain.service
+
+[Install]
+WantedBy=timers.target
