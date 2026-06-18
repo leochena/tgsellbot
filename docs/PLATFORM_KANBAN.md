@@ -18,6 +18,12 @@ Model Lab, and platform operations layer.
 - Platform-only web runtime implemented. `PLATFORM_WEB_ENABLED=1` can serve
   `/platform/app`, `/platform/api`, public reports, and `/health` without
   exposing SQLAdmin.
+- Mini App empty states and Telegram-entry guards are implemented and deployed.
+  - Commit: `f459dad897166f0b8aa7a599fa785a41eb1d08d2`.
+  - Server backup: `/opt/tgsellbot_backups/20260619-011548-miniapp-empty-states`.
+- `scripts/platform_ops.py platform-launch-check` validates the public Mini App
+  URL and feature-flag state before `platform_api_enabled` or
+  `platform_menu_enabled` are switched on.
 - Platform feature flags are default-off in production:
   - `platform_api_enabled=0`
   - `platform_menu_enabled=0`
@@ -26,7 +32,7 @@ Model Lab, and platform operations layer.
 ## In Progress
 
 - Mini App launch readiness
-  - Deploy platform-only web runtime to the Virginia server.
+  - Platform-only web runtime is deployed to the Virginia server.
   - Bind the runtime behind HTTPS before enabling Telegram menu buttons.
   - Keep platform feature flags off until public URL smoke tests pass.
 
@@ -34,9 +40,10 @@ Model Lab, and platform operations layer.
 
 1. Mini App launch readiness
    - Configure a public HTTPS URL and set `platform_webapp_url`.
+   - Run `scripts/platform_ops.py platform-launch-check --smoke` against the
+     public URL.
    - Enable `platform_api_enabled` only after a smoke test through the public URL.
    - Enable `platform_menu_enabled` after Bot menu entry smoke testing.
-   - Add richer Mini App empty states and report detail screens.
 
 2. Ledger migration rehearsal
    - Run `ledger-opening --dry-run`, `ledger-opening`, and `ledger-reconcile`

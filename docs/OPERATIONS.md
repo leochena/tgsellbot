@@ -86,6 +86,18 @@ runtime serves:
 
 Admin review endpoints remain session-gated and do not expose SQLAdmin login or generic database views in this mode.
 
+Before enabling Telegram Mini App menu buttons, run the launch gate. It validates that `platform_webapp_url` is a
+public HTTPS `/platform/app` URL and reports the current platform feature flags without printing secrets:
+
+```bash
+cd /opt/tgsellbot
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-launch-check
+/opt/tgsellbot/.venv/bin/python scripts/platform_ops.py platform-launch-check --url https://your-domain.example/platform/app --smoke
+```
+
+Only enable `platform_api_enabled` after the public URL smoke passes. Only enable `platform_menu_enabled` after the Bot
+menu opens the Mini App successfully through Telegram.
+
 You can also use the Windows helper after `.env` is filled and PostgreSQL is running:
 
 ```powershell

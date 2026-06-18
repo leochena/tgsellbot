@@ -8,10 +8,15 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+TRUTHY = {"1", "true", "yes", "on"}
+MINI_APP_PATH = "/platform/app"
 
 
 def _json_default(value: Any) -> str:
@@ -48,6 +53,137 @@ def _read_json_secret_manifest(path: str | None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise SystemExit("Key manifest must be a JSON object.")
     return payload
+
+
+def _truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in TRUTHY
+
+
+def evaluate_platform_launch_readiness(
+        settings: dict[str, str],
+        *,
+        smoke: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from bot.misc.url_safety import UnsafeURL, normalize_public_https_url
+
+    raw_url = (settings.get("platform_webapp_url") or "").strip()
+    api_enabled = _truthy(settings.get("platform_api_enabled"))
+    menu_enabled = _truthy(settings.get("platform_menu_enabled"))
+    checks: dict[str, dict[str, Any]] = {}
+
+    checks["platform_webapp_url_present"] = {"ok": bool(raw_url)}
+    normalized_url = ""
+    public_url = ""
+    url_ok = False
+    url_error = ""
+    if raw_url:
+        try:
+            safe_url = normalize_public_https_url(raw_url, allow_path=True)
+            normalized_url = safe_url.normalized
+            public_url = safe_url.public
+            url_ok = True
+        except UnsafeURL as exc:
+            url_error = str(exc)
+    checks["platform_webapp_url_public_https"] = {
+        "ok": url_ok,
+        "normalized": normalized_url,
+        "public": public_url,
+        "error": url_error,
+    }
+
+    path = urlsplit(normalized_url).path if normalized_url else ""
+    path_ok = path.rstrip("/") == MINI_APP_PATH if path else False
+    checks["platform_webapp_url_path"] = {
+        "ok": path_ok,
+        "expected": MINI_APP_PATH,
+        "actual": path or "",
+    }
+    if smoke is not None:
+        checks["platform_webapp_http_smoke"] = smoke
+
+    smoke_ok = True if smoke is None else bool(smoke.get("ok"))
+    public_entry_ready = bool(raw_url and url_ok and path_ok and smoke_ok)
+    checks["platform_api_enabled"] = {"ok": api_enabled, "value": settings.get("platform_api_enabled", "")}
+    checks["platform_menu_enabled"] = {"ok": menu_enabled, "value": settings.get("platform_menu_enabled", "")}
+
+    return {
+        "ok": public_entry_ready and (not menu_enabled or api_enabled),
+        "checks": checks,
+        "ready": {
+            "public_entry": public_entry_ready,
+            "can_enable_api": public_entry_ready,
+            "can_enable_menu": public_entry_ready and api_enabled,
+            "current_launch_live": public_entry_ready and api_enabled and menu_enabled,
+        },
+        "current": {
+            "platform_api_enabled": api_enabled,
+            "platform_menu_enabled": menu_enabled,
+        },
+        "next_actions": _platform_launch_next_actions(
+            public_entry_ready=public_entry_ready,
+            api_enabled=api_enabled,
+            menu_enabled=menu_enabled,
+            raw_url=raw_url,
+            path_ok=path_ok,
+            smoke=smoke,
+        ),
+    }
+
+
+def _platform_launch_next_actions(
+        *,
+        public_entry_ready: bool,
+        api_enabled: bool,
+        menu_enabled: bool,
+        raw_url: str,
+        path_ok: bool,
+        smoke: dict[str, Any] | None,
+) -> list[str]:
+    actions: list[str] = []
+    if menu_enabled and not api_enabled:
+        actions.append("Disable platform_menu_enabled or enable platform_api_enabled only after public smoke passes.")
+    if not raw_url:
+        actions.append("Set bot_settings.platform_webapp_url to a public HTTPS /platform/app URL.")
+    elif not path_ok:
+        actions.append("Use a Mini App URL whose path is /platform/app.")
+    if smoke is not None and not smoke.get("ok"):
+        actions.append("Fix the public HTTPS reverse proxy before enabling platform_api_enabled.")
+    if public_entry_ready and not api_enabled:
+        actions.append("Enable bot_settings.platform_api_enabled after public URL smoke passes.")
+    if public_entry_ready and api_enabled and not menu_enabled:
+        actions.append("Enable bot_settings.platform_menu_enabled after Bot menu smoke passes.")
+    if not actions:
+        actions.append("Launch checks pass for the current feature-flag state.")
+    return actions
+
+
+def _smoke_platform_webapp(url: str, timeout: float) -> dict[str, Any]:
+    if not url:
+        return {"ok": False, "status": 0, "error": "URL is required."}
+    request = Request(url, headers={"user-agent": "tgsellbot-platform-launch-check/1.0"})
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            body = response.read(256 * 1024).decode("utf-8", errors="replace")
+            status = int(getattr(response, "status", 0) or response.getcode())
+    except Exception as exc:  # pragma: no cover - exercised by production smoke, not unit tests.
+        return {"ok": False, "status": 0, "error": str(exc)}
+    return {
+        "ok": status == 200 and "TGSellBot Platform" in body and "telegram-web-app.js" in body,
+        "status": status,
+        "contains_title": "TGSellBot Platform" in body,
+        "contains_telegram_sdk": "telegram-web-app.js" in body,
+        "bytes_read": len(body.encode("utf-8")),
+    }
+
+
+async def _platform_launch_settings(url_override: str | None = None) -> dict[str, str]:
+    from bot.database.methods.group_invites import get_bot_setting
+
+    return {
+        "platform_webapp_url": (url_override if url_override is not None else await get_bot_setting("platform_webapp_url", "")),
+        "platform_api_enabled": await get_bot_setting("platform_api_enabled", "0"),
+        "platform_menu_enabled": await get_bot_setting("platform_menu_enabled", "0"),
+    }
 
 
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
@@ -112,6 +248,10 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             max_concurrency=args.max_concurrency,
             max_tokens=args.max_tokens,
         )
+    if args.command == "platform-launch-check":
+        settings = await _platform_launch_settings(args.url)
+        smoke = _smoke_platform_webapp(settings["platform_webapp_url"], args.timeout) if args.smoke else None
+        return evaluate_platform_launch_readiness(settings, smoke=smoke)
     raise ValueError(f"unknown command: {args.command}")
 
 
@@ -163,6 +303,14 @@ def build_parser() -> argparse.ArgumentParser:
     drain.add_argument("--max-redirects", type=int, default=2)
     drain.add_argument("--max-concurrency", type=int, default=2)
     drain.add_argument("--max-tokens", type=int, default=64)
+
+    launch = subparsers.add_parser(
+        "platform-launch-check",
+        help="Check whether the Telegram Mini App public URL and feature flags are safe to launch.",
+    )
+    launch.add_argument("--url", default=None, help="Override bot_settings.platform_webapp_url for a dry-run check.")
+    launch.add_argument("--smoke", action="store_true", help="Fetch the public Mini App URL and verify the HTML entrypoint.")
+    launch.add_argument("--timeout", type=float, default=5.0, help="HTTP timeout in seconds for --smoke.")
     return parser
 
 

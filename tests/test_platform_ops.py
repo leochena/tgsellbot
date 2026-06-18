@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.platform_ops import _parse_now, build_parser
+from scripts.platform_ops import _parse_now, build_parser, evaluate_platform_launch_readiness
 from scripts.platform_worker import build_parser as build_worker_parser
 
 
@@ -108,6 +108,75 @@ class TestPlatformOpsScript:
         assert args.max_redirects == 1
         assert args.max_concurrency == 1
         assert args.max_tokens == 16
+
+    def test_parser_accepts_platform_launch_check(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "platform-launch-check",
+            "--url",
+            "https://example.com/platform/app",
+            "--smoke",
+            "--timeout",
+            "2",
+        ])
+
+        assert args.command == "platform-launch-check"
+        assert args.url == "https://example.com/platform/app"
+        assert args.smoke is True
+        assert args.timeout == 2
+
+    def test_platform_launch_check_rejects_missing_or_unsafe_url(self):
+        missing = evaluate_platform_launch_readiness({
+            "platform_webapp_url": "",
+            "platform_api_enabled": "0",
+            "platform_menu_enabled": "0",
+        })
+        local = evaluate_platform_launch_readiness({
+            "platform_webapp_url": "http://localhost:9090/platform/app",
+            "platform_api_enabled": "0",
+            "platform_menu_enabled": "0",
+        })
+
+        assert missing["ok"] is False
+        assert missing["ready"]["public_entry"] is False
+        assert "platform_webapp_url" in missing["next_actions"][0]
+        assert local["ok"] is False
+        assert local["checks"]["platform_webapp_url_public_https"]["ok"] is False
+        assert "HTTPS" in local["checks"]["platform_webapp_url_public_https"]["error"]
+
+    def test_platform_launch_check_requires_platform_app_path_and_api_before_menu(self):
+        wrong_path = evaluate_platform_launch_readiness({
+            "platform_webapp_url": "https://example.com/not-platform",
+            "platform_api_enabled": "1",
+            "platform_menu_enabled": "0",
+        })
+        ready = evaluate_platform_launch_readiness({
+            "platform_webapp_url": "https://Example.com/platform/app?source=bot",
+            "platform_api_enabled": "1",
+            "platform_menu_enabled": "0",
+        })
+        live = evaluate_platform_launch_readiness({
+            "platform_webapp_url": "https://example.com/platform/app",
+            "platform_api_enabled": "1",
+            "platform_menu_enabled": "1",
+        }, smoke={"ok": True, "status": 200})
+        unsafe_menu = evaluate_platform_launch_readiness({
+            "platform_webapp_url": "https://example.com/platform/app",
+            "platform_api_enabled": "0",
+            "platform_menu_enabled": "1",
+        })
+
+        assert wrong_path["ready"]["public_entry"] is False
+        assert wrong_path["checks"]["platform_webapp_url_path"]["actual"] == "/not-platform"
+        assert ready["ok"] is True
+        assert ready["ready"]["can_enable_api"] is True
+        assert ready["ready"]["can_enable_menu"] is True
+        assert ready["ready"]["current_launch_live"] is False
+        assert ready["checks"]["platform_webapp_url_public_https"]["normalized"] == "https://example.com/platform/app?source=bot"
+        assert live["ok"] is True
+        assert live["ready"]["current_launch_live"] is True
+        assert unsafe_menu["ok"] is False
+        assert "Disable platform_menu_enabled" in unsafe_menu["next_actions"][0]
 
     def test_parse_now_normalizes_naive_datetime_to_utc(self):
         parsed = _parse_now("2026-06-17T00:00:00")
