@@ -2043,6 +2043,25 @@ class TestPlatformAPI:
         assert "我的中转站" in html
         assert "data-owner-channel" in html
         assert "data-owner-relay" in html
+        assert "function renderEmpty" in html
+        assert "function renderTelegramRequired" in html
+        assert "需要从 Telegram 打开" in html
+        assert "当前没有 Telegram initData，个人数据无法读取。" in html
+        assert "function bindUtilityButtons" in html
+        assert 'data-scroll-to="channelForm"' in html
+        assert 'data-scroll-to="relayForm"' in html
+        assert 'data-scroll-to="testForm"' in html
+        assert 'data-jump="channels"' in html
+        assert 'data-jump="relays"' in html
+        assert "暂无频道结果" in html
+        assert "暂无中转站结果" in html
+        assert "暂无已认领频道" in html
+        assert "暂无已认领中转站" in html
+        assert "暂无检测任务" in html
+        assert "暂无检测报告" in html
+        assert "暂无账本条目" in html
+        assert "任务不存在" in html
+        assert "报告不存在" in html
         assert "localStorage" not in html
         assert "/client/api" not in html
         assert "Do not send API keys in chat" not in html

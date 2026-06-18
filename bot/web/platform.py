@@ -2257,6 +2257,17 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       padding: .55rem .65rem;
       color: #694800;
     }
+    .empty {
+      border-style: dashed;
+      background: #f9fbfc;
+      min-height: 7.5rem;
+      place-content: center;
+      text-align: center;
+    }
+    .empty .row-actions {
+      justify-content: center;
+      margin-top: .25rem;
+    }
     .filters {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2650,6 +2661,31 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       node.className = "state" + (mode ? " " + mode : "");
     }
 
+    function renderEmpty(title, detail = "", actions = "") {
+      return (
+        `<article class="item empty">
+          <div class="item-title">${h(title)}</div>
+          ${detail ? `<div class="item-meta">${h(detail)}</div>` : ""}
+          ${actions ? `<div class="row-actions">${actions}</div>` : ""}
+        </article>`
+      );
+    }
+
+    function renderTelegramRequired() {
+      return renderEmpty("需要从 Telegram 打开", "当前没有 Telegram initData，个人数据无法读取。");
+    }
+
+    function bindUtilityButtons(root = document) {
+      root.querySelectorAll("[data-scroll-to]").forEach(button => {
+        button.addEventListener("click", () => {
+          document.getElementById(button.dataset.scrollTo)?.scrollIntoView({ block: "start", behavior: "smooth" });
+        });
+      });
+      root.querySelectorAll("[data-jump]").forEach(button => {
+        button.addEventListener("click", () => selectTab(button.dataset.jump));
+      });
+    }
+
     function authHeaders() {
       return {
         "content-type": "application/json",
@@ -2830,6 +2866,11 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     }
 
     async function loadChannels() {
+      if (!initData) {
+        setState("channelState", "Telegram user is required.", "error");
+        document.getElementById("channelList").innerHTML = renderTelegramRequired();
+        return;
+      }
       const q = document.getElementById("channelQuery").value.trim();
       const category = document.getElementById("channelCategory").value.trim();
       const language = document.getElementById("channelLanguage").value.trim();
@@ -2844,7 +2885,8 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
         const payload = await apiFetch(url);
         const rows = payload.channels || [];
         channelState.hasMore = Boolean(payload.has_more);
-        document.getElementById("channelList").innerHTML = rows.map(channel => (
+        const channelList = document.getElementById("channelList");
+        channelList.innerHTML = rows.length ? rows.map(channel => (
           `<article class="item">
             <div class="item-title"><button class="link-btn" type="button" data-detail="${channel.id}">@${h(channel.username)}</button> <span class="badge">${h(channel.category)}</span> <span class="badge">${h(channel.language)}</span></div>
             <div class="item-meta">${h(channel.title || "")}</div>
@@ -2861,11 +2903,16 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
               <button type="button" data-action="claim" data-channel="${channel.id}">认领</button>
             </div>
           </article>`
-        )).join("");
-        document.querySelectorAll("[data-channel]").forEach(button => {
+        )).join("") : renderEmpty(
+          "暂无频道结果",
+          q || category || language ? "没有匹配当前筛选条件的频道。" : "还没有已审核频道。",
+          `<button type="button" data-scroll-to="channelForm">提交频道</button>`
+        );
+        bindUtilityButtons(channelList);
+        channelList.querySelectorAll("[data-channel]").forEach(button => {
           button.addEventListener("click", () => recordChannelAction(button.dataset.channel, button.dataset.action));
         });
-        document.querySelectorAll("[data-detail]").forEach(button => {
+        channelList.querySelectorAll("[data-detail]").forEach(button => {
           button.addEventListener("click", () => loadChannelDetail(button.dataset.detail));
         });
         const total = Number(payload.total || rows.length || 0);
@@ -3017,6 +3064,11 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     }
 
     async function loadRelays() {
+      if (!initData) {
+        setState("relayState", "Telegram user is required.", "error");
+        document.getElementById("relayList").innerHTML = renderTelegramRequired();
+        return;
+      }
       const q = document.getElementById("relayQuery").value.trim();
       const protocol = document.getElementById("relayProtocol").value.trim();
       const region = document.getElementById("relayRegion").value.trim();
@@ -3031,7 +3083,8 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
         const payload = await apiFetch(url);
         const rows = payload.providers || [];
         relayState.hasMore = Boolean(payload.has_more);
-        document.getElementById("relayList").innerHTML = rows.map(provider => (
+        const relayList = document.getElementById("relayList");
+        relayList.innerHTML = rows.length ? rows.map(provider => (
           `<article class="item">
             <div class="item-title"><button class="link-btn" type="button" data-relay-detail="${provider.id}">${h(provider.name)}</button> <span class="badge">${h(provider.protocol)}</span> <span class="badge">${h(provider.region || "-")}</span></div>
             <div class="item-meta">${h(provider.base_url || "")}</div>
@@ -3048,11 +3101,16 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
               <button type="button" data-relay-action="complaint" data-provider="${provider.id}">投诉</button>
             </div>
           </article>`
-        )).join("");
-        document.querySelectorAll("[data-relay-detail]").forEach(button => {
+        )).join("") : renderEmpty(
+          "暂无中转站结果",
+          q || protocol || region ? "没有匹配当前筛选条件的中转站。" : "还没有已审核中转站。",
+          `<button type="button" data-scroll-to="relayForm">提交中转站</button>`
+        );
+        bindUtilityButtons(relayList);
+        relayList.querySelectorAll("[data-relay-detail]").forEach(button => {
           button.addEventListener("click", () => loadRelayDetail(button.dataset.relayDetail));
         });
-        document.querySelectorAll("[data-relay-action]").forEach(button => {
+        relayList.querySelectorAll("[data-relay-action]").forEach(button => {
           button.addEventListener("click", () => handleRelayAction(button.dataset.provider, button.dataset.relayAction));
         });
         const total = Number(payload.total || rows.length || 0);
@@ -3256,6 +3314,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     async function loadOwnerDashboard() {
       if (!currentUserId) {
         setState("ownerDashboardState", "Telegram user is required.", "error");
+        document.getElementById("ownerDashboardList").innerHTML = renderTelegramRequired();
         return;
       }
       setState("ownerDashboardState", "Loading");
@@ -3281,13 +3340,14 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       node.innerHTML = (
         `<article class="item">
           <div class="item-title">我的频道 <span class="badge">${h(dashboard.channels?.total || 0)}</span></div>
-          <div class="list">${channelCards || `<div class="item-meta">暂无已认领频道</div>`}</div>
+          <div class="list">${channelCards || renderEmpty("暂无已认领频道", "", `<button type="button" data-jump="channels">查看频道</button>`)}</div>
         </article>
         <article class="item">
           <div class="item-title">我的中转站 <span class="badge">${h(dashboard.relays?.total || 0)}</span></div>
-          <div class="list">${relayCards || `<div class="item-meta">暂无已认领中转站</div>`}</div>
+          <div class="list">${relayCards || renderEmpty("暂无已认领中转站", "", `<button type="button" data-jump="relays">查看中转站</button>`)}</div>
         </article>`
       );
+      bindUtilityButtons(node);
       node.querySelectorAll("[data-owner-channel]").forEach(button => {
         button.addEventListener("click", async () => {
           selectTab("channels");
@@ -3396,6 +3456,10 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
 
     function renderModelTestJobDetail(job) {
       const node = document.getElementById("testResult");
+      if (!job) {
+        node.innerHTML = renderEmpty("任务不存在", "检测任务可能已被删除或无权访问。");
+        return;
+      }
       const report = job.report || {};
       node.innerHTML = (
         `<article class="item">
@@ -3424,6 +3488,10 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
 
     function renderModelReportDetail(report) {
       const node = document.getElementById("reportList");
+      if (!report) {
+        node.innerHTML = renderEmpty("报告不存在", "报告可能已被删除或无权访问。");
+        return;
+      }
       const job = report.job || {};
       node.innerHTML = (
         `<article class="item" data-report="${h(report.id)}">
@@ -3483,6 +3551,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     async function loadModelTests() {
       if (!currentUserId) {
         setState("testState", "Telegram user is required.", "error");
+        document.getElementById("testResult").innerHTML = renderTelegramRequired();
         return;
       }
       setState("testState", "Loading");
@@ -3509,7 +3578,12 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
               ${job.report?.id ? `<button type="button" data-model-report="${h(job.report.id)}">查看报告</button>` : ""}
             </div>
           </article>`
-        )).join("") : `<article class="item"><div class="item-meta">暂无检测任务</div></article>`;
+        )).join("") : renderEmpty(
+          "暂无检测任务",
+          "还没有创建接口检测任务。",
+          `<button type="button" data-scroll-to="testForm">创建检测任务</button>`
+        );
+        bindUtilityButtons(node);
         bindModelLabButtons();
         setState("testState", `${rows.length} jobs`, rows.length ? "ok" : "");
       } catch (error) {
@@ -3520,6 +3594,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     async function loadModelReports() {
       if (!currentUserId) {
         setState("reportState", "Telegram user is required.", "error");
+        document.getElementById("reportList").innerHTML = renderTelegramRequired();
         return;
       }
       setState("reportState", "Loading");
@@ -3530,7 +3605,8 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
         const payload = await apiFetch(url);
         const rows = payload.reports || [];
         modelLabState.reportHasMore = Boolean(payload.has_more);
-        document.getElementById("reportList").innerHTML = rows.length ? rows.map(report => (
+        const reportList = document.getElementById("reportList");
+        reportList.innerHTML = rows.length ? rows.map(report => (
           `<article class="item" data-report="${h(report.id)}">
             <div class="item-title">Report #${h(report.id)} <span class="badge">${h(report.visibility)}</span> <span class="badge">${h(report.grade || "-")}</span></div>
             <div class="item-meta">Job #${h(report.job_id)} / ${h(report.declared_model || "-")} / ${h(report.returned_model || "-")}</div>
@@ -3545,7 +3621,12 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
               ${renderReportShareControls(report)}
             </div>
           </article>`
-        )).join("") : `<article class="item"><div class="item-meta">暂无报告</div></article>`;
+        )).join("") : renderEmpty(
+          "暂无检测报告",
+          "完成检测后会生成报告。",
+          `<button type="button" data-scroll-to="testForm">创建检测任务</button>`
+        );
+        bindUtilityButtons(reportList);
         bindModelLabButtons();
         setState("reportState", `${rows.length} reports`, rows.length ? "ok" : "");
       } catch (error) {
@@ -3597,6 +3678,7 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
     async function loadLedger() {
       if (!currentUserId) {
         setState("ledgerState", "Telegram user is required.", "error");
+        document.getElementById("ledgerList").innerHTML = renderTelegramRequired();
         return;
       }
       setState("ledgerState", "Loading");
@@ -3609,12 +3691,12 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
           `<article class="item">
             <div class="item-title">Balance ${h(balances.balance || "0.00")} / Points ${h(balances.points || "0.00")}</div>
           </article>` +
-          rows.map(entry => (
+          (rows.length ? rows.map(entry => (
             `<article class="item">
               <div class="item-title">${h(entry.entry_type)} <span class="badge">${h(entry.account_type)}</span></div>
               <div class="item-meta">${h(entry.amount)} / ${h(entry.status)} / ${h(entry.created_at)}</div>
             </article>`
-          )).join("")
+          )).join("") : renderEmpty("暂无账本条目", "当前账户还没有平台账本记录。"))
         );
         setState("ledgerState", `${rows.length} entries`, "ok");
       } catch (error) {
