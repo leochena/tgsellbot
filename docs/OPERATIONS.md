@@ -92,6 +92,8 @@ The Platform Review workspace can filter channel reports, relay feedback, and re
 `reviewed_by`, and `escalation`; use `unassigned` or `unreviewed` for backlog triage.
 Relay complaint queues also support `followup_state` values `needs_followup`, `in_followup`, `resolved`, and
 `unresolved`, plus Acknowledge, Monitor, and Resolve actions that update the existing review API path.
+The Platform Dashboard includes operating thresholds and alerts for invite retention, ban events, appeal volume, and
+reviewer workload while leaving uncollected metrics explicitly marked as unavailable.
 Channel admin detail includes an internal moderation history timeline. Public channel detail intentionally omits this
 timeline and report-review audit notes.
 

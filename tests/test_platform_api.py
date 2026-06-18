@@ -2265,6 +2265,11 @@ class TestPlatformAPI:
         assert dashboard["model_lab"]["average_cost"]["status"] == "unavailable"
         assert dashboard["model_lab"]["latency"]["status"] == "unavailable"
         assert dashboard["relays"]["availability"]["status"] == "unavailable"
+        assert dashboard["operating"]["thresholds"]["invite_retention"]["min_samples"] == 5
+        assert dashboard["operating"]["thresholds"]["bans"]["warning_count"] == 1
+        assert dashboard["operating"]["thresholds"]["appeals"]["warning_count"] == 3
+        assert dashboard["operating"]["thresholds"]["reviewer_load"]["open_warning_per_reviewer"] == 5
+        assert isinstance(dashboard["operating"]["alerts"], list)
         assert "model_lab.average_cost" in dashboard["coverage"]["unavailable"]
         assert "model_lab.latency" in dashboard["coverage"]["unavailable"]
         assert "relay.availability" in dashboard["coverage"]["unavailable"]
@@ -2323,6 +2328,7 @@ class TestPlatformAPI:
         assert "Owner dashboards" in html
         assert "Review workload" in html
         assert "Audit logs" in html
+        assert "Operating alerts" in html
         assert "ownerDashboards" in html
         assert "reviewWorkload" in html
         assert "auditFilters" in html

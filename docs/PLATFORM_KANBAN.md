@@ -79,6 +79,9 @@ Model Lab, and platform operations layer.
 - Relay complaint queues now expose follow-up states for `needs_followup`,
   `in_followup`, `resolved`, and `unresolved`, with admin API filters plus
   quick Acknowledge, Monitor, and Resolve actions in the review workspace.
+- Platform Dashboard now returns stable operating thresholds and alerts for
+  invite retention, ban events, appeal volume, and reviewer workload, and the
+  review workspace renders the alert count alongside aggregate metrics.
 
 ## In Progress
 
@@ -121,7 +124,6 @@ Model Lab, and platform operations layer.
    - Add retention and monitoring for run and relay availability samples.
 
 6. Dashboard hardening
-   - Add stable thresholds for invite retention, bans, appeals, and reviewer load.
    - Replace unavailable metric placeholders only when collection is live.
 
 ## Blocked Or Needs External Setup

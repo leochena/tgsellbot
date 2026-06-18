@@ -1,3 +1,4 @@
+import datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -56,6 +57,7 @@ from bot.database.methods import (
     get_or_create_group_invite_link,
     perform_daily_checkin,
     record_group_invite_join,
+    record_invite_retention_activity,
     reward_group_inviter_after_checkin,
 )
 from bot.misc.url_safety import UnsafeURL, fingerprint_secret, normalize_public_https_url
@@ -1387,6 +1389,14 @@ class TestRelayAndModelLabFoundation:
         await record_group_invite_join(230007, -1003919149099, invite_link)
         await perform_daily_checkin(230007, reward_amount=1, tickets_per_day=0)
         await reward_group_inviter_after_checkin(230007, -1003919149099, points=1)
+        retention_base = datetime.datetime.now(datetime.timezone.utc)
+        for index in range(4):
+            await record_invite_retention_activity(
+                230007,
+                chat_id=-1003919149099,
+                activity_type=f"dashboard_probe_{index}",
+                activity_at=retention_base + datetime.timedelta(minutes=index + 1),
+            )
         channel = await submit_channel(
             {
                 "channel": "@dashboard_channel",
@@ -1415,6 +1425,20 @@ class TestRelayAndModelLabFoundation:
         await review_relay_provider(relay["id"], reviewer_id=230006, status="approved", risk_status="normal")
         feedback = await add_relay_feedback(relay["id"], user_id=230006, feedback_type="rating", text="ok", rating=5)
         await review_relay_feedback(feedback["id"], reviewer_id=230006, status="approved")
+        for index in range(5):
+            complaint = await add_relay_feedback(
+                relay["id"],
+                user_id=230006,
+                feedback_type="complaint",
+                text=f"dashboard workload complaint {index}",
+            )
+            await review_relay_feedback(
+                complaint["id"],
+                reviewer_id=230006,
+                status="under_review",
+                assigned_to=230006,
+                escalation="operator",
+            )
         job = await create_model_test_job(
             {
                 "endpoint": "https://dashboard-test.example.com/v1",
@@ -1440,6 +1464,9 @@ class TestRelayAndModelLabFoundation:
         )
         await create_ledger_entry(230006, "points", "dashboard_bonus", 3, idempotency_key="dashboard-ledger")
         await record_fraud_event("model_test", str(job["id"]), "ssrf_block", {"url": "https://example.com"}, score_delta=1)
+        await record_fraud_event("user", "230007", "ban", {"reason": "dashboard threshold"}, score_delta=10)
+        for index in range(3):
+            await record_fraud_event("invite_reward", f"dashboard-appeal-{index}", "appeal", {"reason": "dashboard threshold"}, score_delta=0)
 
         dashboard = await platform_dashboard_metrics()
 
@@ -1457,7 +1484,17 @@ class TestRelayAndModelLabFoundation:
         assert dashboard["growth"]["invite_retention"]["status"] == "tracked"
         assert dashboard["growth"]["invite_retention"]["snapshot_total"] >= 1
         assert dashboard["growth"]["invite_retention"]["retention_rate"] == 0.0
-        assert dashboard["risk"]["appeals"] == 0
+        assert dashboard["risk"]["bans"] == 1
+        assert dashboard["risk"]["appeals"] == 3
+        operating = dashboard["operating"]
+        assert operating["thresholds"]["invite_retention"]["min_samples"] == 5
+        assert operating["thresholds"]["invite_retention"]["warning_rate_below"] == 0.3
+        assert operating["thresholds"]["bans"]["warning_count"] == 1
+        assert operating["thresholds"]["appeals"]["warning_count"] == 3
+        assert operating["thresholds"]["reviewer_load"]["open_warning_per_reviewer"] == 5
+        assert operating["review_workload_summary"]["open_total"] >= 5
+        alert_types = {alert["type"] for alert in operating["alerts"]}
+        assert {"invite_retention_low", "ban_events", "appeal_volume", "review_reviewer_over_threshold"} <= alert_types
         assert "model_lab.average_cost" in dashboard["coverage"]["unavailable"]
 
         await record_model_test_run(

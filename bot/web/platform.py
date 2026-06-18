@@ -1432,6 +1432,7 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
             metricRow("Ledger entries", sumObject(dashboard.growth?.ledger_entries), dashboard.growth?.ledger_totals),
             metricRow("Invite retention", dashboard.growth?.invite_retention?.snapshot_total || 0, dashboard.growth?.invite_retention),
             metricRow("Risk events", sumObject(dashboard.risk?.fraud_events?.event_type), dashboard.risk?.fraud_events),
+            metricRow("Operating alerts", (dashboard.operating?.alerts || []).length, dashboard.operating || {}),
             metricRow("Unavailable metrics", (dashboard.coverage?.unavailable || []).length, dashboard.coverage?.unavailable),
           ];
           return rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`).join("");

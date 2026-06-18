@@ -88,6 +88,10 @@ REVIEW_WORKLOAD_OPEN_CHANNEL_RISKS = {"reported", "under_review"}
 REVIEW_WORKLOAD_OPEN_FEEDBACK_STATUSES = {"submitted", "under_review"}
 REVIEW_WORKLOAD_OPEN_WARNING_THRESHOLD = 5
 REVIEW_WORKLOAD_URGENT_THRESHOLD = 1
+DASHBOARD_INVITE_RETENTION_MIN_SAMPLES = 5
+DASHBOARD_INVITE_RETENTION_WARNING_RATE = Decimal("0.30")
+DASHBOARD_BAN_WARNING_THRESHOLD = 1
+DASHBOARD_APPEAL_WARNING_THRESHOLD = 3
 MODEL_REPORT_LIMITATION = (
     "This report evaluates protocol compatibility, declared-model consistency, observed behavior, "
     "and degradation risk. Black-box testing cannot prove the real upstream model with certainty."
@@ -2276,6 +2280,27 @@ async def platform_dashboard_metrics() -> dict[str, Any]:
     invite_retention_retained = int(retention_retained_rows[1] or 0)
     if invite_retention_total <= 0:
         coverage_unavailable.append("growth.invite_retention")
+    invite_retention = _invite_retention_metric(
+        total=invite_retention_total,
+        retained=invite_retention_retained,
+        activity_type=retention_activity_type,
+    )
+    review_workload = await admin_review_workload_metrics()
+    risk = {
+        "fraud_events": {
+            "status": fraud_status,
+            "event_type": fraud_event_type,
+        },
+        "ssrf_blocks": int(fraud_event_type.get("ssrf_block", 0)),
+        "key_misuse": int(fraud_event_type.get("key_misuse", 0)),
+        "bans": int(fraud_event_type.get("ban", 0)),
+        "appeals": int(fraud_event_type.get("appeal", 0)),
+    }
+    operating = _dashboard_operating_policy(
+        invite_retention=invite_retention,
+        risk=risk,
+        review_workload=review_workload,
+    )
 
     return {
         "channels": {
@@ -2331,22 +2356,10 @@ async def platform_dashboard_metrics() -> dict[str, Any]:
                 for account_type, status, total in ledger_rows
             ],
             "invite_rewards": invite_reward_status,
-            "invite_retention": _invite_retention_metric(
-                total=invite_retention_total,
-                retained=invite_retention_retained,
-                activity_type=retention_activity_type,
-            ),
+            "invite_retention": invite_retention,
         },
-        "risk": {
-            "fraud_events": {
-                "status": fraud_status,
-                "event_type": fraud_event_type,
-            },
-            "ssrf_blocks": int(fraud_event_type.get("ssrf_block", 0)),
-            "key_misuse": int(fraud_event_type.get("key_misuse", 0)),
-            "bans": int(fraud_event_type.get("ban", 0)),
-            "appeals": int(fraud_event_type.get("appeal", 0)),
-        },
+        "risk": risk,
+        "operating": operating,
         "coverage": {
             "unavailable": coverage_unavailable,
         },
@@ -2854,6 +2867,77 @@ def _review_workload_alerts(summary: dict[str, Any], reviewers: list[dict[str, A
                 "threshold": REVIEW_WORKLOAD_OPEN_WARNING_THRESHOLD,
             })
     return alerts
+
+
+def _dashboard_operating_policy(
+        *,
+        invite_retention: dict[str, Any],
+        risk: dict[str, Any],
+        review_workload: dict[str, Any],
+) -> dict[str, Any]:
+    thresholds = {
+        "invite_retention": {
+            "min_samples": DASHBOARD_INVITE_RETENTION_MIN_SAMPLES,
+            "warning_rate_below": float(DASHBOARD_INVITE_RETENTION_WARNING_RATE),
+        },
+        "bans": {
+            "warning_count": DASHBOARD_BAN_WARNING_THRESHOLD,
+        },
+        "appeals": {
+            "warning_count": DASHBOARD_APPEAL_WARNING_THRESHOLD,
+        },
+        "reviewer_load": {
+            "open_warning_per_reviewer": REVIEW_WORKLOAD_OPEN_WARNING_THRESHOLD,
+            "urgent_attention": REVIEW_WORKLOAD_URGENT_THRESHOLD,
+            "unassigned_warning": REVIEW_WORKLOAD_OPEN_WARNING_THRESHOLD,
+        },
+    }
+    alerts: list[dict[str, Any]] = []
+    if invite_retention.get("status") == "tracked":
+        sample_count = int(invite_retention.get("snapshot_total") or 0)
+        retention_rate = Decimal(str(invite_retention.get("retention_rate") or 0))
+        if sample_count >= DASHBOARD_INVITE_RETENTION_MIN_SAMPLES and retention_rate < DASHBOARD_INVITE_RETENTION_WARNING_RATE:
+            alerts.append({
+                "type": "invite_retention_low",
+                "severity": "warning",
+                "sample_count": sample_count,
+                "retention_rate": float(retention_rate),
+                "threshold": float(DASHBOARD_INVITE_RETENTION_WARNING_RATE),
+            })
+
+    bans = int(risk.get("bans") or 0)
+    if bans >= DASHBOARD_BAN_WARNING_THRESHOLD:
+        alerts.append({
+            "type": "ban_events",
+            "severity": "warning",
+            "count": bans,
+            "threshold": DASHBOARD_BAN_WARNING_THRESHOLD,
+        })
+
+    appeals = int(risk.get("appeals") or 0)
+    if appeals >= DASHBOARD_APPEAL_WARNING_THRESHOLD:
+        alerts.append({
+            "type": "appeal_volume",
+            "severity": "warning",
+            "count": appeals,
+            "threshold": DASHBOARD_APPEAL_WARNING_THRESHOLD,
+        })
+
+    for alert in review_workload.get("alerts") or []:
+        alert_type = str(alert.get("type") or "")
+        alerts.append({
+            "type": f"review_{alert_type}" if alert_type else "review_workload",
+            "severity": alert.get("severity") or "warning",
+            "count": alert.get("count", alert.get("open_total", 0)),
+            "threshold": alert.get("threshold"),
+            "reviewer_id": alert.get("reviewer_id"),
+        })
+
+    return {
+        "thresholds": thresholds,
+        "alerts": alerts,
+        "review_workload_summary": review_workload.get("summary", {}),
+    }
 
 
 async def _count_by(session, column) -> dict[str, int]:
