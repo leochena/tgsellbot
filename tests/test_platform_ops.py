@@ -1,7 +1,11 @@
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
-from scripts.platform_ops import _parse_now, build_parser, evaluate_platform_launch_readiness
+import pytest
+
+from scripts.platform_ops import _parse_now, _run_with_audit, build_parser, evaluate_platform_launch_readiness
 from scripts.platform_worker import build_parser as build_worker_parser
 
 
@@ -204,6 +208,69 @@ class TestPlatformOpsScript:
         parsed = _parse_now("2026-06-17T00:00:00")
 
         assert parsed == datetime(2026, 6, 17, tzinfo=timezone.utc)
+
+    def test_audited_model_ops_wrapper_records_success(self, monkeypatch):
+        seen = []
+
+        async def fake_run(args):
+            return {"ok": True, "processed": 1}
+
+        async def fake_record(command, result, *, ok, level=None):
+            seen.append({"command": command, "result": result, "ok": ok, "level": level})
+
+        monkeypatch.setattr("scripts.platform_ops._run", fake_run)
+        monkeypatch.setattr("scripts.platform_ops._record_platform_ops_run", fake_record)
+
+        result = asyncio.run(_run_with_audit(SimpleNamespace(command="model-test-drain")))
+
+        assert result == {"ok": True, "processed": 1}
+        assert seen == [{
+            "command": "model-test-drain",
+            "result": {"ok": True, "processed": 1},
+            "ok": True,
+            "level": None,
+        }]
+
+    def test_audited_model_ops_wrapper_records_failure(self, monkeypatch):
+        seen = []
+
+        async def fake_run(args):
+            raise RuntimeError("boom sk-secret-value")
+
+        async def fake_record(command, result, *, ok, level=None):
+            seen.append({"command": command, "result": result, "ok": ok, "level": level})
+
+        monkeypatch.setattr("scripts.platform_ops._run", fake_run)
+        monkeypatch.setattr("scripts.platform_ops._record_platform_ops_run", fake_record)
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(_run_with_audit(SimpleNamespace(command="model-sample-retention")))
+
+        assert seen == [{
+            "command": "model-sample-retention",
+            "result": {
+                "ok": False,
+                "error_type": "RuntimeError",
+                "error": "boom sk-secret-value",
+            },
+            "ok": False,
+            "level": "ERROR",
+        }]
+
+    def test_audited_model_ops_wrapper_keeps_result_when_audit_write_fails(self, monkeypatch, capsys):
+        async def fake_run(args):
+            return {"ok": True, "processed": 1}
+
+        async def fake_record(command, result, *, ok, level=None):
+            raise RuntimeError("audit db down")
+
+        monkeypatch.setattr("scripts.platform_ops._run", fake_run)
+        monkeypatch.setattr("scripts.platform_ops._record_platform_ops_run", fake_record)
+
+        result = asyncio.run(_run_with_audit(SimpleNamespace(command="model-test-drain")))
+
+        assert result == {"ok": True, "processed": 1}
+        assert "failed to write platform ops audit event" in capsys.readouterr().err
 
     def test_invite_settlement_systemd_templates_are_bounded(self):
         root = Path(__file__).resolve().parents[1]

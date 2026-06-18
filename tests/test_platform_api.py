@@ -2270,9 +2270,13 @@ class TestPlatformAPI:
         assert dashboard["operating"]["thresholds"]["appeals"]["warning_count"] == 3
         assert dashboard["operating"]["thresholds"]["reviewer_load"]["open_warning_per_reviewer"] == 5
         assert isinstance(dashboard["operating"]["alerts"], list)
+        assert dashboard["model_lab"]["operations"]["commands"]["model-test-drain"]["status"] == "unavailable"
+        assert dashboard["model_lab"]["operations"]["commands"]["model-sample-retention"]["status"] == "unavailable"
         assert "model_lab.average_cost" in dashboard["coverage"]["unavailable"]
         assert "model_lab.latency" in dashboard["coverage"]["unavailable"]
         assert "relay.availability" in dashboard["coverage"]["unavailable"]
+        assert "model_lab.operations.model-test-drain" in dashboard["coverage"]["unavailable"]
+        assert "model_lab.operations.model-sample-retention" in dashboard["coverage"]["unavailable"]
 
     async def test_platform_review_app_requires_admin_session_and_uses_admin_review_api(self):
         unauthenticated = await platform_review_app_page(_request(
@@ -2329,6 +2333,7 @@ class TestPlatformAPI:
         assert "Review workload" in html
         assert "Audit logs" in html
         assert "Operating alerts" in html
+        assert "Model ops" in html
         assert "ownerDashboards" in html
         assert "reviewWorkload" in html
         assert "auditFilters" in html

@@ -145,7 +145,9 @@ For operator batch drain, keep the manifest only on the server, for example
 `/etc/tgsellbot/model-test-keys.json`, owned by the service user and mode
 `0600`. Do not commit it, print it, or pass raw keys on the command line. The
 systemd drain template skips execution while the manifest file is missing or
-empty:
+empty. Successful and failed `model-test-drain` runs write redacted
+`platform_ops_run` audit events that appear in the Platform Dashboard Model ops
+readout:
 
 ```bash
 sudo install -d -m 0700 -o tgsellbot -g tgsellbot /etc/tgsellbot
@@ -158,7 +160,8 @@ sudo systemctl enable --now tgsellbot-model-test-drain.timer
 
 Only enable the drain timer after the isolated Worker trust boundary is
 accepted for production use. For sample retention, preview first and then
-install the daily cleanup timer:
+install the daily cleanup timer. The retention command also writes a redacted
+`platform_ops_run` audit event for the dashboard readout:
 
 ```bash
 cd /opt/tgsellbot

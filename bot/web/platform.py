@@ -1429,6 +1429,7 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
             metricRow("Relay feedback", sumObject(dashboard.relays?.feedback?.types), dashboard.relays?.feedback),
             metricRow("Model test jobs", sumObject(dashboard.model_lab?.jobs), dashboard.model_lab?.jobs),
             metricRow("Model success rate", percent(dashboard.model_lab?.success_rate), dashboard.model_lab?.reports),
+            metricRow("Model ops", dashboard.model_lab?.operations?.healthy_count || 0, dashboard.model_lab?.operations),
             metricRow("Ledger entries", sumObject(dashboard.growth?.ledger_entries), dashboard.growth?.ledger_totals),
             metricRow("Invite retention", dashboard.growth?.invite_retention?.snapshot_total || 0, dashboard.growth?.invite_retention),
             metricRow("Risk events", sumObject(dashboard.risk?.fraud_events?.event_type), dashboard.risk?.fraud_events),

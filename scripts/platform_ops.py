@@ -19,6 +19,7 @@ load_dotenv(ROOT / ".env", encoding="utf-8")
 
 TRUTHY = {"1", "true", "yes", "on"}
 MINI_APP_PATH = "/platform/app"
+AUDITED_COMMANDS = {"model-test-drain", "model-sample-retention"}
 
 
 def _json_default(value: Any) -> str:
@@ -267,6 +268,55 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     raise ValueError(f"unknown command: {args.command}")
 
 
+async def _run_with_audit(args: argparse.Namespace) -> dict[str, Any]:
+    command = str(getattr(args, "command", "") or "")
+    try:
+        result = await _run(args)
+    except Exception as exc:
+        if command in AUDITED_COMMANDS:
+            await _safe_record_platform_ops_run(
+                command,
+                {
+                    "ok": False,
+                    "error_type": exc.__class__.__name__,
+                    "error": str(exc),
+                },
+                ok=False,
+                level="ERROR",
+            )
+        raise
+
+    if command in AUDITED_COMMANDS:
+        result_ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+        await _safe_record_platform_ops_run(command, result if isinstance(result, dict) else {"value": result}, ok=result_ok)
+    return result
+
+
+async def _safe_record_platform_ops_run(
+        command: str,
+        result: dict[str, Any],
+        *,
+        ok: bool,
+        level: str | None = None,
+) -> None:
+    try:
+        await _record_platform_ops_run(command, result, ok=ok, level=level)
+    except Exception as exc:  # pragma: no cover - defensive guard for production ops.
+        print(f"warning: failed to write platform ops audit event: {exc}", file=sys.stderr)
+
+
+async def _record_platform_ops_run(
+        command: str,
+        result: dict[str, Any],
+        *,
+        ok: bool,
+        level: str | None = None,
+) -> None:
+    from bot.database.methods.platform import record_platform_ops_run
+
+    await record_platform_ops_run(command, result, ok=ok, level=level)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="TGSellBot platform migration and settlement operations.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -338,7 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    result = asyncio.run(_run(args))
+    result = asyncio.run(_run_with_audit(args))
     print(json.dumps(result, ensure_ascii=False, default=_json_default, indent=2))
 
 

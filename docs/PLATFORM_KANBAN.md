@@ -86,6 +86,10 @@ Model Lab, and platform operations layer.
   drain and daily sample retention, plus a `model-sample-retention` ops command
   that prunes old Model Lab run and relay availability samples with dry-run
   support.
+- Platform Dashboard now includes Model Lab operations readouts for the latest
+  `model-test-drain` and `model-sample-retention` runs. The CLI records
+  redacted `platform_ops_run` audit events for successful and failed scheduled
+  runs, and the review workspace renders a Model ops row.
 
 ## In Progress
 
@@ -126,7 +130,6 @@ Model Lab, and platform operations layer.
    - Isolate Worker deployment from the main bot trust boundary.
    - Enable the batch-drain timer only after the server-local key manifest and
      isolated Worker deployment boundary are approved.
-   - Add monitoring readouts for scheduled drain and retention job outcomes.
 
 6. Dashboard hardening
    - Replace unavailable metric placeholders only when collection is live.
@@ -144,7 +147,8 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 652 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 86 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 659 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
 - Latest server runtime verification:

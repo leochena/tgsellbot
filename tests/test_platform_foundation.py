@@ -35,6 +35,7 @@ from bot.database.methods.platform import (
     owner_dashboard,
     platform_dashboard_metrics,
     prune_model_lab_samples,
+    record_platform_ops_run,
     record_fraud_event,
     record_channel_interaction,
     record_model_test_run,
@@ -1443,6 +1444,55 @@ class TestRelayAndModelLabFoundation:
         assert fresh_run["id"] in remaining_run_ids
         assert old_sample["id"] not in remaining_sample_ids
         assert fresh_sample["id"] in remaining_sample_ids
+
+    async def test_platform_dashboard_includes_model_lab_ops_readouts_without_secrets(self, user_factory):
+        await user_factory(telegram_id=230097)
+        secret = "sk-dashboard-ops-secret"
+        await record_platform_ops_run(
+            "model-test-drain",
+            {
+                "ok": True,
+                "processed": 2,
+                "missing_key": 1,
+                "limit": 10,
+                "results": [
+                    {"job_id": 1001, "status": "completed", "api_key": secret},
+                    {"job_id": 1002, "status": "failed", "error": f"bad {secret}"},
+                    {"job_id": 1003, "status": "missing_key", "key_masked": "sk-...cret"},
+                ],
+            },
+        )
+        await record_platform_ops_run(
+            "model-sample-retention",
+            {
+                "dry_run": False,
+                "limit": 5000,
+                "run_retention_days": 90,
+                "availability_retention_days": 90,
+                "model_test_runs": {"matched": 3, "deleted": 3},
+                "relay_availability_samples": {"matched": 4, "deleted": 4},
+            },
+        )
+
+        dashboard = await platform_dashboard_metrics()
+        ops = dashboard["model_lab"]["operations"]
+        drain = ops["commands"]["model-test-drain"]
+        retention = ops["commands"]["model-sample-retention"]
+        logs = await list_platform_audit_logs(action="platform_ops_run", resource_type="PlatformOps")
+
+        assert ops["healthy_count"] == 2
+        assert ops["failed_count"] == 0
+        assert ops["unavailable_count"] == 0
+        assert drain["status"] == "ok"
+        assert drain["summary"]["processed"] == 2
+        assert drain["summary"]["missing_key"] == 1
+        assert drain["summary"]["results"] == {"completed": 1, "failed": 1, "missing_key": 1}
+        assert retention["summary"]["model_test_runs"]["deleted"] == 3
+        assert retention["summary"]["relay_availability_samples"]["deleted"] == 4
+        assert "model_lab.operations.model-test-drain" not in dashboard["coverage"]["unavailable"]
+        assert "model_lab.operations.model-sample-retention" not in dashboard["coverage"]["unavailable"]
+        assert secret not in str(dashboard)
+        assert secret not in str(logs)
 
     async def test_platform_dashboard_metrics_aggregate_current_foundation_without_fake_unavailable_values(self, user_factory):
         await user_factory(telegram_id=230006)

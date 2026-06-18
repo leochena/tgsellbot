@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import ipaddress
+import json
 import re
 import secrets
 import socket
@@ -78,6 +79,8 @@ RELAY_FEEDBACK_OUTCOMES = {
     "monitoring",
 }
 RELAY_FEEDBACK_TERMINAL_OUTCOMES = {"resolved", "provider_fixed", "user_error", "duplicate", "invalid"}
+PLATFORM_OPS_AUDIT_ACTION = "platform_ops_run"
+MODEL_LAB_OPERATION_COMMANDS = ("model-test-drain", "model-sample-retention")
 RELAY_FEEDBACK_ACTIVE_OUTCOMES = {"acknowledged", "escalated", "monitoring"}
 RELAY_FEEDBACK_FOLLOWUP_STATES = {"needs_followup", "in_followup", "resolved", "unresolved"}
 RELAY_FEEDBACK_OPEN_STATUSES = {"submitted", "under_review"}
@@ -2008,6 +2011,36 @@ async def prune_model_lab_samples(
     }
 
 
+async def record_platform_ops_run(
+        command: str,
+        result: dict[str, Any],
+        *,
+        ok: bool = True,
+        level: str | None = None,
+        now: datetime.datetime | None = None,
+) -> None:
+    command = _clean_text(command, "command", 64)
+    safe_result = _redact_evidence_value(result if isinstance(result, dict) else {"value": result})
+    recorded_at = now or datetime.datetime.now(datetime.timezone.utc)
+    if recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=datetime.timezone.utc)
+    else:
+        recorded_at = recorded_at.astimezone(datetime.timezone.utc)
+    details = {
+        "command": command,
+        "ok": bool(ok),
+        "recorded_at": recorded_at.isoformat(),
+        "result": safe_result,
+    }
+    await log_audit(
+        PLATFORM_OPS_AUDIT_ACTION,
+        level=level or ("INFO" if ok else "ERROR"),
+        resource_type="PlatformOps",
+        resource_id=command,
+        details=json.dumps(details, ensure_ascii=False, default=_json_default),
+    )
+
+
 async def create_model_test_report(job_id: int, data: dict[str, Any]) -> dict[str, Any]:
     visibility = _clean_text(data.get("visibility", "private"), "visibility", 16)
     if visibility not in REPORT_VISIBILITY:
@@ -2311,6 +2344,16 @@ async def platform_dashboard_metrics() -> dict[str, Any]:
                 func.coalesce(func.sum(ModelTestRuns.total_tokens), 0),
             )
         )).one()
+        model_ops_rows = (await s.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.action == PLATFORM_OPS_AUDIT_ACTION,
+                AuditLog.resource_type == "PlatformOps",
+                AuditLog.resource_id.in_(MODEL_LAB_OPERATION_COMMANDS),
+            )
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
+            .limit(len(MODEL_LAB_OPERATION_COMMANDS) * 5)
+        )).scalars().all()
         ledger_rows = (await s.execute(
             select(LedgerEntries.account_type, LedgerEntries.status, func.coalesce(func.sum(LedgerEntries.amount), 0))
             .group_by(LedgerEntries.account_type, LedgerEntries.status)
@@ -2337,6 +2380,8 @@ async def platform_dashboard_metrics() -> dict[str, Any]:
     invite_retention_retained = int(retention_retained_rows[1] or 0)
     if invite_retention_total <= 0:
         coverage_unavailable.append("growth.invite_retention")
+    model_ops = _platform_ops_readouts(model_ops_rows)
+    coverage_unavailable.extend(model_ops["unavailable"])
     invite_retention = _invite_retention_metric(
         total=invite_retention_total,
         retained=invite_retention_retained,
@@ -2405,6 +2450,7 @@ async def platform_dashboard_metrics() -> dict[str, Any]:
             "failure_rate": _ratio(model_failed, model_total),
             "average_cost": _model_average_cost_metric(model_run_avg_cost, int(model_run_cost_count or 0)),
             "latency": _model_latency_metric(model_run_avg_duration, model_run_total),
+            "operations": model_ops,
         },
         "growth": {
             "ledger_entries": ledger_account_type,
@@ -3155,6 +3201,14 @@ def _redact_evidence(value: dict[str, Any]) -> dict[str, Any]:
     return _redact_evidence_value(value)
 
 
+def _json_default(value: Any) -> str:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    return str(value)
+
+
 def _redact_text(value: str) -> str:
     text = str(value or "")
     text = re.sub(r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [redacted]", text, flags=re.IGNORECASE)
@@ -3178,6 +3232,106 @@ def _redact_evidence_value(value: Any, key: str = "") -> Any:
     if isinstance(value, str) and any(marker in value.lower() for marker in ("bearer ", "sk-", "api_key=")):
         return "[redacted]"
     return value
+
+
+def _platform_ops_readouts(rows: list[AuditLog]) -> dict[str, Any]:
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        command = str(row.resource_id or "")
+        if command in MODEL_LAB_OPERATION_COMMANDS and command not in latest:
+            latest[command] = _platform_ops_entry_to_dict(row)
+
+    commands: dict[str, dict[str, Any]] = {}
+    unavailable: list[str] = []
+    for command in MODEL_LAB_OPERATION_COMMANDS:
+        item = latest.get(command)
+        if item is None:
+            unavailable.append(f"model_lab.operations.{command}")
+            item = {
+                "command": command,
+                "status": "unavailable",
+                "ok": None,
+                "last_run_at": "",
+                "level": "",
+                "summary": {},
+            }
+        commands[command] = item
+
+    return {
+        "commands": commands,
+        "healthy_count": sum(1 for item in commands.values() if item["status"] == "ok"),
+        "failed_count": sum(1 for item in commands.values() if item["status"] == "failed"),
+        "unavailable_count": len(unavailable),
+        "unavailable": unavailable,
+    }
+
+
+def _platform_ops_entry_to_dict(entry: AuditLog) -> dict[str, Any]:
+    payload = _parse_platform_ops_details(entry.details or "")
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    ok_value = payload.get("ok")
+    ok = bool(ok_value) if isinstance(ok_value, bool) else str(entry.level or "").upper() != "ERROR"
+    command = str(payload.get("command") or entry.resource_id or "")
+    return {
+        "command": command,
+        "status": "ok" if ok else "failed",
+        "ok": ok,
+        "last_run_at": entry.timestamp.isoformat() if entry.timestamp else str(payload.get("recorded_at") or ""),
+        "level": entry.level,
+        "summary": _platform_ops_summary(command, result),
+    }
+
+
+def _parse_platform_ops_details(details: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(details or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _platform_ops_summary(command: str, result: dict[str, Any]) -> dict[str, Any]:
+    if command == "model-test-drain":
+        statuses: dict[str, int] = {}
+        for item in result.get("results") or []:
+            if isinstance(item, dict):
+                status = _safe_summary(item.get("status") or "unknown", max_len=32)
+                statuses[status] = statuses.get(status, 0) + 1
+        return {
+            "processed": _int_metric(result.get("processed")),
+            "missing_key": _int_metric(result.get("missing_key")),
+            "limit": _int_metric(result.get("limit")),
+            "results": statuses,
+        }
+    if command == "model-sample-retention":
+        runs = result.get("model_test_runs") if isinstance(result.get("model_test_runs"), dict) else {}
+        samples = result.get("relay_availability_samples") if isinstance(result.get("relay_availability_samples"), dict) else {}
+        return {
+            "dry_run": bool(result.get("dry_run")),
+            "limit": _int_metric(result.get("limit")),
+            "run_retention_days": _int_metric(result.get("run_retention_days")),
+            "availability_retention_days": _int_metric(result.get("availability_retention_days")),
+            "model_test_runs": {
+                "matched": _int_metric(runs.get("matched")),
+                "deleted": _int_metric(runs.get("deleted")),
+            },
+            "relay_availability_samples": {
+                "matched": _int_metric(samples.get("matched")),
+                "deleted": _int_metric(samples.get("deleted")),
+            },
+        }
+    return {
+        _safe_summary(key, max_len=32): value
+        for key, value in result.items()
+        if isinstance(value, (str, int, float, bool)) or value is None
+    }
+
+
+def _int_metric(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _fraud_event_to_dict(event: FraudEvents) -> dict[str, Any]:
