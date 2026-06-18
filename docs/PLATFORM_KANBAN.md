@@ -206,6 +206,9 @@ Model Lab, and platform operations layer.
   - `https://tg.1so.org/platform/app` returned 200 and includes the Telegram
     WebApp SDK.
   - `https://tg.1so.org/health` returned `healthy` with database `ok`.
+  - `scripts/platform_ops.py platform-cert-check --certbot --systemd-timers`
+    passed with certificate expiry `2026-09-16T16:45:44+00:00`, 89 days
+    remaining, certbot domain `tg.1so.org`, and one renewal timer listed.
   - Unauthenticated `https://tg.1so.org/platform/api/channels/discover`
     returned 401 `telegram_init_data_invalid`.
   - `scripts/platform_ops.py platform-launch-check --smoke` passed with

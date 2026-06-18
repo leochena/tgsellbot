@@ -250,6 +250,9 @@ session or reviewer-role Mini App auth; broader admin endpoints remain session-g
 - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 97 tests, including Model Lab job/report list pagination and the Mini App certificate renewal gate.
 - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 672 tests.
 - `.\.venv312\Scripts\python.exe scripts\platform_ops.py platform-cert-check --url https://tg.1so.org/platform/app --min-valid-days 21 --timeout 5` passed with certificate expiry `2026-09-16T16:45:44+00:00` and 89 days remaining.
+- Virginia production `scripts/platform_ops.py platform-cert-check --certbot --systemd-timers`
+  passed with certificate expiry `2026-09-16T16:45:44+00:00`, 89 days
+  remaining, certbot domain `tg.1so.org`, and one renewal timer listed.
 - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=model_lab`
   loaded the Mini App shell with Model Lab active, task/report paging controls,
   disabled paging without Telegram initData, no `localStorage`, and no console
