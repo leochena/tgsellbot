@@ -68,6 +68,10 @@ Model Lab, and platform operations layer.
   - `assigned_to` accepts a reviewer id or `unassigned`.
   - `reviewed_by` accepts a reviewer id or `unreviewed`.
   - `escalation` filters by `none`, `watch`, `operator`, `risk`, or `urgent`.
+- Channel admin detail now includes a structured moderation history timeline
+  for submissions, ownership claims, user reports, risk-state changes, and
+  audit events. Public channel detail excludes internal report-review audit
+  notes and does not expose the admin-only timeline.
 
 ## In Progress
 
@@ -95,7 +99,8 @@ Model Lab, and platform operations layer.
 
 3. Channel center P0 hardening
    - Add reviewer role gates for future non-admin moderation access.
-   - Expand moderation history.
+   - Continue enriching moderation history only when new moderation event types
+     are introduced.
 
 4. Relay directory P0 hardening
    - Add reviewer role gates for future non-admin moderation access.

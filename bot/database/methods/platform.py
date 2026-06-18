@@ -603,16 +603,21 @@ async def get_channel_detail(channel_id: int, user_id: int | None = None) -> dic
             .order_by(ChannelClaims.created_at.desc(), ChannelClaims.id.desc())
             .limit(5)
         )).scalars().all()
+        submission_ids = [str(row.id) for row in submissions]
         audits = (await s.execute(
             select(AuditLog)
-            .where(
-                AuditLog.resource_type.in_(("Channel", "ChannelSubmission", "ChannelClaim")),
-                or_(
-                    AuditLog.resource_id == str(channel_id),
-                    AuditLog.resource_id == channel.username,
-                    AuditLog.resource_id == str(channel.id),
+            .where(or_(
+                and_(
+                    AuditLog.resource_type == "Channel",
+                    AuditLog.action.in_(("channel_submit", "channel_owner_profile_update")),
+                    AuditLog.resource_id.in_([str(channel_id), channel.username, str(channel.id)]),
                 ),
-            )
+                and_(
+                    AuditLog.resource_type == "ChannelSubmission",
+                    AuditLog.action == "channel_review",
+                    AuditLog.resource_id.in_(submission_ids),
+                ),
+            ))
             .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .limit(10)
         )).scalars().all()
@@ -670,6 +675,15 @@ async def get_channel_admin_detail(channel_id: int) -> dict[str, Any] | None:
             .order_by(ChannelClaims.created_at.desc(), ChannelClaims.id.desc())
             .limit(10)
         )).scalars().all()
+        reports = (await s.execute(
+            select(ChannelInteractions)
+            .where(
+                ChannelInteractions.channel_id == int(channel_id),
+                ChannelInteractions.action == "report",
+            )
+            .order_by(ChannelInteractions.created_at.desc(), ChannelInteractions.id.desc())
+            .limit(20)
+        )).scalars().all()
         audits = (await s.execute(
             select(AuditLog)
             .where(or_(
@@ -709,6 +723,7 @@ async def get_channel_admin_detail(channel_id: int) -> dict[str, Any] | None:
         "submissions": [_channel_submission_detail_to_dict(row) for row in submissions],
         "claims": [_channel_claim_detail_to_dict(row) for row in claims],
         "audit_trail": [_audit_log_public_to_dict(row) for row in audits],
+        "moderation_history": _channel_moderation_history(channel, submissions, claims, reports, audits),
     }
 
 
@@ -3152,6 +3167,106 @@ def _channel_claim_public_detail_to_dict(claim: ChannelClaims) -> dict[str, Any]
         "verified_at": claim.verified_at.isoformat() if claim.verified_at else "",
         "created_at": claim.created_at.isoformat() if claim.created_at else "",
     }
+
+
+def _channel_moderation_history(
+        channel: Channels,
+        submissions: list[ChannelSubmissions],
+        claims: list[ChannelClaims],
+        reports: list[ChannelInteractions],
+        audits: list[AuditLog],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    sequence = 0
+
+    def add_event(kind: str, action: str, at: datetime.datetime | None, **data: Any) -> None:
+        nonlocal sequence
+        timestamp = at or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+        entry = {
+            "kind": kind,
+            "action": action,
+            "at": at.isoformat() if at else "",
+            **data,
+            "_sort_at": timestamp,
+            "_sequence": sequence,
+        }
+        sequence += 1
+        events.append(entry)
+
+    if (
+            channel.risk_status != "normal"
+            or channel.risk_notes
+            or channel.risk_reviewed_by is not None
+            or channel.risk_assigned_to is not None
+            or channel.risk_escalation != "none"
+    ):
+        add_event(
+            "risk_state",
+            "channel_risk_state",
+            channel.risk_reviewed_at or channel.updated_at,
+            status=channel.risk_status,
+            reviewer_id=channel.risk_reviewed_by,
+            assigned_to=channel.risk_assigned_to,
+            escalation=channel.risk_escalation,
+            summary="Current channel report review state",
+            notes=channel.risk_notes,
+        )
+
+    for report in reports:
+        add_event(
+            "report",
+            "user_report",
+            report.created_at,
+            status="reported",
+            actor_id=report.user_id,
+            source=report.source,
+            summary=f"User reported this channel from {report.source or 'unknown source'}",
+            notes="",
+        )
+
+    for submission in submissions:
+        add_event(
+            "submission",
+            "channel_submission",
+            submission.reviewed_at or submission.created_at,
+            status=submission.status,
+            actor_id=submission.submitter_id,
+            reviewer_id=submission.reviewed_by,
+            source=submission.submitter_relation,
+            summary=_safe_summary(submission.reason, max_len=240),
+            notes=_safe_summary(submission.review_notes, max_len=500),
+        )
+
+    for claim in claims:
+        add_event(
+            "claim",
+            "channel_claim",
+            claim.verified_at or claim.created_at,
+            status=claim.status,
+            actor_id=claim.claimant_id,
+            method=claim.method,
+            summary=f"{claim.method} ownership claim",
+            notes="",
+        )
+
+    for audit in audits:
+        add_event(
+            "audit",
+            audit.action,
+            audit.timestamp,
+            status=audit.level,
+            actor_id=audit.user_id,
+            resource_type=audit.resource_type,
+            resource_id=audit.resource_id,
+            summary=_safe_summary(audit.details, max_len=500),
+            notes="",
+        )
+
+    events.sort(key=lambda item: (item["_sort_at"], item["_sequence"]), reverse=True)
+    for event in events:
+        event.pop("_sort_at", None)
+        event.pop("_sequence", None)
+    return events[:50]
 
 
 def _owner_channel_dashboard_item(

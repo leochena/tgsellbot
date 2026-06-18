@@ -1640,6 +1640,16 @@ class TestPlatformAPI:
         assert payload["report"]["escalation"] == "risk"
         assert payload["submissions"][0]["reason"] == "detail history"
         assert payload["claims"][0]["challenge"]
+        history = payload["moderation_history"]
+        assert {entry["kind"] for entry in history} >= {"risk_state", "report", "submission", "claim", "audit"}
+        assert any(
+            entry["kind"] == "risk_state"
+            and entry["notes"] == "internal detail notes"
+            and entry["assigned_to"] == 240032
+            and entry["escalation"] == "risk"
+            for entry in history
+        )
+        assert any(entry["kind"] == "report" and entry["actor_id"] == 240033 for entry in history)
         assert {event["action"] for event in payload["audit_trail"]} >= {
             "channel_review",
             "channel_claim_review",
@@ -2098,6 +2108,8 @@ class TestPlatformAPI:
         assert "Detail" in html
         assert "renderChannelAdminDetail" in html
         assert "renderRelayAdminDetail" in html
+        assert "Moderation history" in html
+        assert "moderation_history" in html
         assert "Assigned user" in html
         assert "id or unassigned" in html
         assert "id or unreviewed" in html

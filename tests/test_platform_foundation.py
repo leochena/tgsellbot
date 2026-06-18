@@ -464,11 +464,26 @@ class TestChannelFoundation:
         assert admin_detail["interactions"]["favorite"] == 1
         assert admin_detail["submissions"][0]["reason"] == "admin detail test"
         assert admin_detail["claims"][0]["challenge"] == claim["challenge"]
+        history = admin_detail["moderation_history"]
+        assert {entry["kind"] for entry in history} >= {"risk_state", "report", "submission", "claim", "audit"}
+        assert any(
+            entry["kind"] == "risk_state"
+            and entry["notes"] == "internal report notes"
+            and entry["assigned_to"] == 220030
+            and entry["escalation"] == "operator"
+            for entry in history
+        )
+        assert any(entry["kind"] == "report" and entry["actor_id"] == 220031 for entry in history)
+        assert any(entry["kind"] == "submission" and entry["summary"] == "admin detail test" for entry in history)
+        assert any(entry["kind"] == "claim" and entry["method"] == "manual" for entry in history)
         assert {entry["action"] for entry in admin_detail["audit_trail"]} >= {
             "channel_review",
             "channel_claim_review",
             "channel_report_review",
         }
+        assert "moderation_history" not in public_detail
+        assert "internal report notes" not in str(public_detail)
+        assert all(entry["action"] != "channel_report_review" for entry in public_detail["audit_trail"])
         assert "risk_notes" not in public_detail["channel"]
         assert "challenge" not in public_detail["claims"][0]
 

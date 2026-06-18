@@ -2029,12 +2029,17 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
       const submissions = detail.submissions || [];
       const claims = detail.claims || [];
       const audits = detail.audit_trail || [];
+      const moderationHistory = detail.moderation_history || [];
       const submissionRows = submissions.length ? submissions.map(item => (
         `<div class="row-meta">${h(item.status || "-")} / submitter ${h(item.submitter_id || "-")} / ${h(item.submitter_relation || "-")} / ${h(item.created_at || "-")}</div>`
       )).join("") : `<div class="row-meta">No submissions</div>`;
       const claimRows = claims.length ? claims.map(item => (
         `<div class="row-meta">${h(item.method || "-")} / ${h(item.status || "-")} / claimant ${h(item.claimant_id || "-")} / ${h(item.verified_at || item.created_at || "-")}</div>`
       )).join("") : `<div class="row-meta">No claims</div>`;
+      const historyRows = moderationHistory.length ? moderationHistory.map(item => {
+        const historyText = [item.summary, item.notes].filter(Boolean).join(" / ") || "-";
+        return `<div class="row-meta">${h(item.at || "-")} / ${h(item.kind || "-")} / ${h(item.status || item.action || "-")} / actor ${h(item.actor_id || item.reviewer_id || "-")} / ${h(historyText)}</div>`;
+      }).join("") : `<div class="row-meta">No moderation history</div>`;
       const auditRows = audits.length ? audits.map(item => (
         `<div class="row-meta">${h(item.timestamp || "-")} / ${h(item.action || "-")} / ${h(item.details || "-")}</div>`
       )).join("") : `<div class="row-meta">No audit events</div>`;
@@ -2065,6 +2070,10 @@ PLATFORM_REVIEW_HTML = r"""<!doctype html>
         <section class="detail-block">
           <h3>Claims</h3>
           ${claimRows}
+        </section>
+        <section class="detail-block">
+          <h3>Moderation history</h3>
+          ${historyRows}
         </section>
         <section class="detail-block">
           <h3>Audit trail</h3>
