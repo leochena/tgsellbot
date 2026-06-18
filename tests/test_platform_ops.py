@@ -6,11 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.platform_ops import (
+    _model_lab_manifest_check,
     _parse_now,
     _run,
     _run_with_audit,
     build_parser,
     evaluate_ledger_cutover_readiness,
+    evaluate_model_drain_readiness,
     evaluate_model_key_manifest,
     evaluate_platform_certificate_readiness,
     evaluate_platform_launch_readiness,
@@ -202,6 +204,26 @@ class TestPlatformOpsScript:
         assert args.command == "model-key-manifest-check"
         assert args.key_manifest_file == "keys.json"
 
+    def test_parser_accepts_model_drain_readiness_check(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "model-drain-readiness-check",
+            "--key-manifest-file",
+            "/etc/tgsellbot/model-test-keys.json",
+            "--worker-runner",
+            "/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
+            "--timer-name",
+            "tgsellbot-model-test-drain.timer",
+            "--timeout",
+            "2",
+        ])
+
+        assert args.command == "model-drain-readiness-check"
+        assert args.key_manifest_file == "/etc/tgsellbot/model-test-keys.json"
+        assert args.worker_runner == "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
+        assert args.timer_name == "tgsellbot-model-test-drain.timer"
+        assert args.timeout == 2
+
     def test_model_key_manifest_check_redacts_raw_keys(self):
         raw_key_one = "sk-unit-secret-one"
         raw_key_two = "sk-unit-secret-two"
@@ -239,6 +261,33 @@ class TestPlatformOpsScript:
         assert result["keys"][0]["fingerprint"] != raw_key
         assert raw_key not in serialized
 
+    def test_model_drain_readiness_tracks_manual_timer_and_live_states(self):
+        runner = {"ok": True}
+        manifest = {"ok": True}
+        disabled_timer = {"ok": True, "installed": True, "enabled": False, "active": False}
+        active_timer = {"ok": True, "installed": True, "enabled": True, "active": True}
+        missing_manifest = {"ok": False, "error": "file does not exist."}
+
+        ready = evaluate_model_drain_readiness(runner, manifest, disabled_timer)
+        live = evaluate_model_drain_readiness(runner, manifest, active_timer)
+        blocked = evaluate_model_drain_readiness(runner, missing_manifest, disabled_timer)
+
+        assert ready["ok"] is True
+        assert ready["ready"] == {
+            "manual_drain": True,
+            "timer_enablement": True,
+            "scheduled_drain_live": False,
+        }
+        assert "approved manual model-test-drain" in ready["next_actions"][0]
+        assert live["ok"] is True
+        assert live["ready"]["manual_drain"] is True
+        assert live["ready"]["timer_enablement"] is False
+        assert live["ready"]["scheduled_drain_live"] is True
+        assert "Scheduled Model Lab drain" in live["next_actions"][0]
+        assert blocked["ok"] is False
+        assert blocked["ready"]["manual_drain"] is False
+        assert "server-local 0600 Model Lab key manifest" in blocked["next_actions"][0]
+
     def test_model_key_manifest_check_rejects_duplicate_fingerprints_without_raw_keys(self):
         raw_key = "sk-unit-duplicate-secret"
 
@@ -264,6 +313,63 @@ class TestPlatformOpsScript:
 
         assert result["ok"] is True
         assert result["key_count"] == 1
+        assert raw_key not in str(result)
+
+    def test_model_manifest_file_check_redacts_raw_key(self, tmp_path):
+        raw_key = "sk-unit-readiness-file-secret"
+        manifest = tmp_path / "keys.json"
+        manifest.write_text('{"keys":[{"api_key":"sk-unit-readiness-file-secret"}]}', encoding="utf-8")
+        manifest.chmod(0o600)
+
+        result = _model_lab_manifest_check(str(manifest))
+
+        assert result["ok"] is True
+        assert result["manifest"]["ok"] is True
+        assert result["manifest"]["key_count"] == 1
+        assert raw_key not in str(result)
+
+    async def test_model_drain_readiness_command_aggregates_checks_without_raw_keys(self, tmp_path, monkeypatch):
+        raw_key = "sk-unit-drain-readiness-secret"
+        manifest = tmp_path / "keys.json"
+        manifest.write_text('{"keys":[{"api_key":"sk-unit-drain-readiness-secret"}]}', encoding="utf-8")
+        manifest.chmod(0o600)
+        seen = {}
+
+        def fake_runner(path):
+            seen["runner"] = path
+            return {"ok": True, "path": path, "root_owner": True, "executable": True}
+
+        def fake_timer(unit_name, timeout):
+            seen["timer"] = {"unit": unit_name, "timeout": timeout}
+            return {
+                "ok": True,
+                "unit": unit_name,
+                "installed": True,
+                "enabled": False,
+                "active": False,
+                "enabled_state": "disabled",
+                "active_state": "inactive",
+            }
+
+        monkeypatch.setattr("scripts.platform_ops._model_lab_runner_check", fake_runner)
+        monkeypatch.setattr("scripts.platform_ops._run_systemd_unit_state", fake_timer)
+
+        result = await _run(SimpleNamespace(
+            command="model-drain-readiness-check",
+            key_manifest_file=str(manifest),
+            worker_runner="/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
+            timer_name="tgsellbot-model-test-drain.timer",
+            timeout=2,
+        ))
+
+        assert result["ok"] is True
+        assert result["ready"]["manual_drain"] is True
+        assert result["ready"]["timer_enablement"] is True
+        assert result["checks"]["server_local_key_manifest"]["manifest"]["key_count"] == 1
+        assert seen == {
+            "runner": "/usr/local/libexec/tgsellbot/run-isolated-worker.sh",
+            "timer": {"unit": "tgsellbot-model-test-drain.timer", "timeout": 2},
+        }
         assert raw_key not in str(result)
 
     def test_parser_accepts_model_sample_retention(self):

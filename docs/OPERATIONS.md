@@ -168,13 +168,17 @@ sudo chmod 0600 /opt/tgsellbot/.env
 sudo cp deploy/systemd/tgsellbot-model-test-drain.service /etc/systemd/system/
 sudo cp deploy/systemd/tgsellbot-model-test-drain.timer /etc/systemd/system/
 sudo systemctl daemon-reload
+./.venv/bin/python scripts/platform_ops.py model-drain-readiness-check --key-manifest-file /etc/tgsellbot/model-test-keys.json --worker-runner /usr/local/libexec/tgsellbot/run-isolated-worker.sh --timer-name tgsellbot-model-test-drain.timer
 sudo systemctl enable --now tgsellbot-model-test-drain.timer
 ```
 
-Only enable the drain timer after `model-key-manifest-check` returns `ok=true`,
-the isolated Worker trust boundary is accepted for production use, and a manual
-operator drain has been approved. The installed runner re-executes the Worker as
-`tgsellbot-worker`, clears the application environment before
+Only enable the drain timer after `model-drain-readiness-check` returns
+`ready.manual_drain=true`, the isolated Worker trust boundary is accepted for
+production use, and a manual operator drain has been approved. The readiness
+check is read-only: it validates the runner, server-local manifest shape and
+permissions, and systemd timer wiring without printing raw keys or running
+drain jobs. The installed runner re-executes the Worker as `tgsellbot-worker`,
+clears the application environment before
 `platform_worker.py` starts, and passes the one-time task JSON only through
 stdin. For sample retention, preview first and then install the daily cleanup
 timer. The retention command also writes a redacted `platform_ops_run` audit

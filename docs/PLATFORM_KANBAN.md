@@ -110,6 +110,10 @@ Model Lab, and platform operations layer.
 - Model Lab key manifests now have a read-only `model-key-manifest-check`
   command that validates server-local manifest shape, duplicate fingerprints,
   and redacted output before a manual drain or timer enablement.
+- Model Lab batch drain production wiring now has a read-only
+  `model-drain-readiness-check` command that combines isolated runner,
+  server-local key manifest, secret-file permission, and systemd timer checks
+  without running drain jobs or printing raw keys.
 - Model Lab report sharing now has Mini App and public report page controls for
   copying links, opening the system share sheet when available, and falling
   back to Telegram share URLs. Private reports still do not generate public
@@ -172,8 +176,8 @@ Model Lab, and platform operations layer.
 
 5. Model Lab P0 production wiring
    - Enable the batch-drain timer only after the server-local key manifest
-     passes `model-key-manifest-check`, the isolated Worker runner is approved,
-     and a manual drain is approved.
+     passes `model-drain-readiness-check`, the isolated Worker runner is
+     approved, and a manual drain is approved.
    - Keep report sharing scoped to public/unlisted reports; private reports
      must continue to omit public links.
 
@@ -184,7 +188,8 @@ Model Lab, and platform operations layer.
 
 - Model Lab batch drain still requires a server-local key manifest and explicit
   approval before enabling `tgsellbot-model-test-drain.timer` for real keys.
-  The manifest must pass `model-key-manifest-check` first.
+  The manifest and runner/timer wiring must pass `model-drain-readiness-check`
+  first.
 
 ## Verification Checklist
 
@@ -194,8 +199,10 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 97 tests, including Bot WebApp menu markup validation, the ledger cutover gate, the Model Lab key manifest check, Model Lab job/report list pagination, and the Mini App certificate renewal gate.
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 672 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_foundation.py tests\test_platform_api.py tests\test_platform_ops.py -q` passed: 101 tests, including Bot WebApp menu markup validation, the ledger cutover gate, the Model Lab key manifest and drain-readiness checks, Model Lab job/report list pagination, and the Mini App certificate renewal gate.
+  - `.\.venv312\Scripts\python.exe -m pytest tests\test_platform_ops.py -q` passed: 29 tests, including the read-only Model Lab drain-readiness gate and raw-key redaction checks.
+  - `.\.venv312\Scripts\python.exe scripts\platform_ops.py model-drain-readiness-check` returned a safe not-ready JSON locally when default Linux server paths and systemd are unavailable on Windows.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 676 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall -q bot scripts tests` passed.
   - Local Browser smoke on

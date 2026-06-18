@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import re
 import socket
 import ssl
@@ -26,6 +27,9 @@ MINI_APP_PATH = "/platform/app"
 AUDITED_COMMANDS = {"model-test-drain", "model-sample-retention"}
 EXPECTED_PLATFORM_MENU_TABS = ("channels", "model_lab", "contribute")
 CERT_DATE_FORMAT = "%b %d %H:%M:%S %Y %Z"
+DEFAULT_MODEL_TEST_KEY_MANIFEST = "/etc/tgsellbot/model-test-keys.json"
+DEFAULT_MODEL_LAB_WORKER_RUNNER = "/usr/local/libexec/tgsellbot/run-isolated-worker.sh"
+DEFAULT_MODEL_TEST_DRAIN_TIMER = "tgsellbot-model-test-drain.timer"
 LEDGER_CUTOVER_ROLLBACK_PLAN = [
     "Keep users.balance and users.points_balance as the read source until a separate release explicitly switches reads.",
     "If a future switch misbehaves, route reads back to users.balance/users.points_balance and leave ledger rows append-only.",
@@ -388,6 +392,192 @@ def evaluate_model_key_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def evaluate_model_drain_readiness(
+        runner: dict[str, Any],
+        manifest: dict[str, Any],
+        timer: dict[str, Any],
+) -> dict[str, Any]:
+    runner_ok = bool(runner.get("ok"))
+    manifest_ok = bool(manifest.get("ok"))
+    timer_ok = bool(timer.get("ok"))
+    timer_installed = bool(timer.get("installed"))
+    timer_active = bool(timer.get("active"))
+    timer_enabled = bool(timer.get("enabled"))
+
+    ready_for_manual_drain = runner_ok and manifest_ok
+    ready_for_timer_enablement = ready_for_manual_drain and timer_ok and timer_installed and not timer_active
+    scheduled_drain_live = ready_for_manual_drain and timer_ok and timer_installed and timer_enabled and timer_active
+
+    next_actions: list[str] = []
+    if not runner_ok:
+        next_actions.append("Install and verify the root-owned isolated Worker runner before any batch drain.")
+    if not manifest_ok:
+        next_actions.append("Install a server-local 0600 Model Lab key manifest and rerun the readiness check.")
+    if not timer_ok or not timer_installed:
+        next_actions.append("Install the tgsellbot-model-test-drain systemd service/timer before scheduling drains.")
+    if ready_for_timer_enablement:
+        next_actions.append("Run an approved manual model-test-drain before enabling the drain timer.")
+    if scheduled_drain_live:
+        next_actions.append("Scheduled Model Lab drain appears live; monitor redacted Model ops dashboard readouts.")
+    if ready_for_manual_drain and timer_ok and timer_installed and timer_active and not timer_enabled:
+        next_actions.append("Investigate the active drain timer because systemd reports it active but not enabled.")
+
+    return {
+        "ok": ready_for_manual_drain and timer_ok and timer_installed,
+        "ready": {
+            "manual_drain": ready_for_manual_drain,
+            "timer_enablement": ready_for_timer_enablement,
+            "scheduled_drain_live": scheduled_drain_live,
+        },
+        "checks": {
+            "isolated_worker_runner": runner,
+            "server_local_key_manifest": manifest,
+            "model_test_drain_timer": timer,
+        },
+        "next_actions": next_actions,
+    }
+
+
+def _model_lab_runner_check(path: str) -> dict[str, Any]:
+    return _local_file_check(path, require_executable=True, require_root_owner=True)
+
+
+def _model_lab_manifest_check(path: str) -> dict[str, Any]:
+    file_check = _local_file_check(path, require_non_empty=True, require_secret_permissions=True)
+    manifest_check: dict[str, Any] = {
+        "ok": False,
+        "skipped": True,
+        "error": "manifest file was not read because the file check failed.",
+    }
+    if file_check.get("exists") and file_check.get("is_file") and file_check.get("non_empty"):
+        try:
+            manifest_check = evaluate_model_key_manifest(_read_json_secret_manifest(path))
+        except SystemExit as exc:
+            manifest_check = {
+                "ok": False,
+                "key_count": 0,
+                "unique_fingerprint_count": 0,
+                "duplicate_fingerprint_count": 0,
+                "keys": [],
+                "error": str(exc),
+                "next_actions": ["Fix the server-local Model Lab key manifest before enabling the drain timer."],
+            }
+    return {
+        **file_check,
+        "manifest": manifest_check,
+        "ok": bool(file_check.get("ok")) and bool(manifest_check.get("ok")),
+    }
+
+
+def _local_file_check(
+        path: str,
+        *,
+        require_non_empty: bool = False,
+        require_executable: bool = False,
+        require_root_owner: bool = False,
+        require_secret_permissions: bool = False,
+) -> dict[str, Any]:
+    target = Path(path)
+    result: dict[str, Any] = {
+        "ok": False,
+        "path": str(target),
+        "exists": False,
+        "is_file": False,
+        "non_empty": False,
+        "executable": False,
+        "mode": "",
+        "owner_uid": None,
+        "root_owner": False,
+        "secret_permissions": False,
+        "posix_checks_skipped": os.name != "posix",
+        "error": "",
+    }
+    try:
+        stat_result = target.stat()
+    except FileNotFoundError:
+        result["error"] = "file does not exist."
+        return result
+    except OSError as exc:
+        result["error"] = str(exc)
+        return result
+
+    is_file = target.is_file()
+    mode = stat_result.st_mode & 0o777
+    non_empty = stat_result.st_size > 0
+    executable = os.access(target, os.X_OK)
+    root_owner = os.name != "posix" or getattr(stat_result, "st_uid", None) == 0
+    secret_permissions = os.name != "posix" or (mode & 0o077) == 0
+
+    errors: list[str] = []
+    if not is_file:
+        errors.append("path is not a file")
+    if require_non_empty and not non_empty:
+        errors.append("file is empty")
+    if require_executable and not executable:
+        errors.append("file is not executable")
+    if require_root_owner and not root_owner:
+        errors.append("file is not owned by root")
+    if require_secret_permissions and not secret_permissions:
+        errors.append("secret file must not be group/world readable or executable")
+
+    result.update({
+        "exists": True,
+        "is_file": is_file,
+        "non_empty": non_empty,
+        "executable": executable,
+        "mode": f"{mode:04o}",
+        "owner_uid": getattr(stat_result, "st_uid", None),
+        "root_owner": root_owner,
+        "secret_permissions": secret_permissions,
+        "ok": not errors,
+        "error": "; ".join(errors),
+    })
+    return result
+
+
+def _run_systemd_unit_state(unit_name: str, timeout: float) -> dict[str, Any]:
+    enabled = _run_read_only_command(["systemctl", "is-enabled", unit_name], timeout=timeout)
+    active = _run_read_only_command(["systemctl", "is-active", unit_name], timeout=timeout)
+    enabled_state = _systemctl_state_output(enabled)
+    active_state = _systemctl_state_output(active)
+    systemctl_available = enabled["returncode"] != 127 and active["returncode"] != 127
+    combined_output = " ".join([
+        str(enabled.get("stdout") or ""),
+        str(enabled.get("stderr") or ""),
+        str(active.get("stdout") or ""),
+        str(active.get("stderr") or ""),
+    ]).lower()
+    not_found = any(token in combined_output for token in (
+        "not-found",
+        "not found",
+        "could not be found",
+        "does not exist",
+        "no such file",
+    ))
+    installed = systemctl_available and not not_found and enabled_state not in {"", "not-found"}
+    query_ok = systemctl_available and installed
+
+    return {
+        "ok": query_ok,
+        "unit": unit_name,
+        "installed": installed,
+        "enabled": enabled_state in {"enabled", "enabled-runtime", "linked", "linked-runtime"},
+        "active": active_state == "active",
+        "enabled_state": enabled_state,
+        "active_state": active_state,
+        "enabled_returncode": enabled["returncode"],
+        "active_returncode": active["returncode"],
+        "error": "" if query_ok else (enabled["error"] or active["error"] or "systemd unit was not found."),
+    }
+
+
+def _systemctl_state_output(completed: dict[str, Any]) -> str:
+    output = str(completed.get("stdout") or completed.get("stderr") or "").strip().splitlines()
+    if not output:
+        return ""
+    return output[0].strip().split()[0]
+
+
 def _collect_model_key_manifest_entries(manifest: dict[str, Any]) -> list[tuple[str, str]]:
     from bot.misc.url_safety import fingerprint_secret
 
@@ -673,6 +863,12 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         )
     if args.command == "model-key-manifest-check":
         return evaluate_model_key_manifest(_read_json_secret_manifest(args.key_manifest_file))
+    if args.command == "model-drain-readiness-check":
+        return evaluate_model_drain_readiness(
+            _model_lab_runner_check(args.worker_runner),
+            _model_lab_manifest_check(args.key_manifest_file),
+            _run_systemd_unit_state(args.timer_name, args.timeout),
+        )
     if args.command == "model-sample-retention":
         from bot.database.methods.platform import prune_model_lab_samples
 
@@ -818,6 +1014,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate an ephemeral Model Lab key manifest without printing raw keys.",
     )
     manifest_check.add_argument("--key-manifest-file", default=None, help="Read JSON key manifest from file; omit to read stdin.")
+
+    drain_readiness = subparsers.add_parser(
+        "model-drain-readiness-check",
+        help="Read-only gate for Model Lab drain runner, server-local key manifest, and systemd timer wiring.",
+    )
+    drain_readiness.add_argument(
+        "--key-manifest-file",
+        default=DEFAULT_MODEL_TEST_KEY_MANIFEST,
+        help="Server-local JSON key manifest path to validate without printing raw keys.",
+    )
+    drain_readiness.add_argument(
+        "--worker-runner",
+        default=DEFAULT_MODEL_LAB_WORKER_RUNNER,
+        help="Root-owned executable wrapper for the isolated Worker.",
+    )
+    drain_readiness.add_argument(
+        "--timer-name",
+        default=DEFAULT_MODEL_TEST_DRAIN_TIMER,
+        help="Systemd timer unit that schedules model-test-drain.",
+    )
+    drain_readiness.add_argument("--timeout", type=float, default=5.0, help="Read-only systemctl timeout in seconds.")
 
     retention = subparsers.add_parser(
         "model-sample-retention",
