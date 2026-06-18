@@ -232,6 +232,20 @@ or on Docker:
 docker compose run --rm bot alembic upgrade head
 ```
 
+## Channel Bot-Admin Claim Review
+
+When a channel claim uses method `bot_admin`, approving it through the Platform Review API performs a live Telegram
+`get_chat_member` check before `owner_user_id` is written.
+
+Operational notes:
+
+- The bot must be able to access the submitted channel by `telegram_chat_id` or public username.
+- The claimant must currently be a Telegram channel `administrator` or `creator`.
+- If Telegram verification fails, the API returns `bot_admin_verification_failed` and leaves the claim pending.
+- Use the `challenge` or `manual` claim methods as fallback paths when Bot-admin verification is unavailable.
+- Successful approvals write an audit summary with `bot_admin_verified=True`; do not paste raw screenshots, tokens, or
+  private channel evidence into review notes.
+
 ## Ledger Opening Rehearsal
 
 Opening ledger backfill must be rehearsed on a production-like database copy before any source-of-truth switch. Do not

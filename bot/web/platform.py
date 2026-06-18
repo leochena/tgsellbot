@@ -2,6 +2,15 @@ import logging
 from html import escape
 from typing import Any
 
+from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramNotFound,
+)
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
@@ -24,6 +33,7 @@ from bot.database.methods.platform import (
     discover_channels,
     discover_relay_providers,
     get_channel_admin_detail,
+    get_channel_claim_review_context,
     get_channel_detail,
     get_model_test_job,
     get_model_test_report,
@@ -232,6 +242,68 @@ def _as_bool(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "approved", "approve"}
 
 
+def _channel_chat_ref(channel: dict[str, Any]) -> int | str:
+    chat_id = channel.get("telegram_chat_id")
+    if chat_id not in (None, ""):
+        return int(chat_id)
+    username = str(channel.get("username") or "").strip().lstrip("@")
+    if not username:
+        raise PlatformAPIError(
+            "Channel username or Telegram chat id is required for Bot-admin verification.",
+            400,
+            "channel_identifier_required",
+        )
+    return f"@{username}"
+
+
+def _chat_member_status(member: Any) -> str:
+    status = getattr(member, "status", "")
+    return str(getattr(status, "value", status) or "").strip().lower()
+
+
+async def _verify_channel_bot_admin_claim(context: dict[str, Any]) -> dict[str, Any]:
+    claim = context["claim"]
+    channel = context["channel"]
+    claimant_id = int(claim["claimant_id"])
+    chat_ref = _channel_chat_ref(channel)
+    session = AiohttpSession(proxy=EnvKeys.BOT_PROXY_URL or None)
+    try:
+        async with Bot(
+            token=EnvKeys.TOKEN,
+            default=DefaultBotProperties(parse_mode="HTML"),
+            session=session,
+        ) as bot:
+            member = await bot.get_chat_member(chat_id=chat_ref, user_id=claimant_id)
+    except (TelegramBadRequest, TelegramForbiddenError, TelegramNotFound) as exc:
+        raise PlatformAPIError(
+            "Bot-admin verification failed. Confirm the bot can access the channel and the claimant is an admin.",
+            409,
+            "bot_admin_verification_failed",
+        ) from exc
+    except TelegramAPIError as exc:
+        raise PlatformAPIError(
+            "Telegram Bot API verification is unavailable.",
+            502,
+            "telegram_verification_unavailable",
+        ) from exc
+
+    status = _chat_member_status(member)
+    if status not in {"administrator", "creator"}:
+        raise PlatformAPIError(
+            "Claimant is not a Telegram channel administrator.",
+            409,
+            "bot_admin_verification_failed",
+        )
+    return {
+        "verified": True,
+        "channel_id": int(claim["channel_id"]),
+        "claimant_id": claimant_id,
+        "telegram_chat": str(chat_ref),
+        "telegram_status": status,
+        "can_post_messages": bool(getattr(member, "can_post_messages", False)),
+    }
+
+
 def _report_share_secret() -> str:
     return str(getattr(EnvKeys, "SECRET_KEY", "") or getattr(EnvKeys, "TOKEN", ""))
 
@@ -351,11 +423,21 @@ async def api_channel_claim_impl(request: Request):
 async def api_channel_claim_review_impl(request: Request):
     data = await _request_json(request)
     actor_id = await _reviewer_actor_id(request, data)
+    claim_id = int(request.path_params["claim_id"])
+    approved = _as_bool(data.get("approved"))
+    bot_admin_verification = None
+    if approved:
+        context = await get_channel_claim_review_context(claim_id)
+        if not context:
+            return _json_error("Channel claim not found", 404, "claim_not_found")
+        if context["claim"]["method"] == "bot_admin":
+            bot_admin_verification = await _verify_channel_bot_admin_claim(context)
     ok = await verify_channel_claim(
-        int(request.path_params["claim_id"]),
+        claim_id,
         reviewer_id=actor_id,
-        approved=_as_bool(data.get("approved")),
+        approved=approved,
         notes=str(data.get("notes") or ""),
+        bot_admin_verification=bot_admin_verification,
     )
     if not ok:
         return _json_error("Channel claim not found", 404, "claim_not_found")

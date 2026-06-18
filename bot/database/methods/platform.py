@@ -799,6 +799,22 @@ async def list_channel_claims(
     }
 
 
+async def get_channel_claim_review_context(claim_id: int) -> dict[str, Any] | None:
+    async with Database().session() as s:
+        row = (await s.execute(
+            select(ChannelClaims, Channels)
+            .join(Channels, Channels.id == ChannelClaims.channel_id)
+            .where(ChannelClaims.id == int(claim_id))
+        )).one_or_none()
+        if not row:
+            return None
+        claim, channel = row
+        return {
+            "claim": _channel_claim_detail_to_dict(claim),
+            "channel": _channel_admin_to_dict(channel),
+        }
+
+
 async def create_channel_claim(channel_id: int, claimant_id: int, method: str = "challenge") -> dict[str, Any]:
     method = _clean_text(method, "method", 32).lower()
     if method not in CHANNEL_CLAIM_METHODS:
@@ -830,7 +846,33 @@ async def create_channel_claim(channel_id: int, claimant_id: int, method: str = 
     return result
 
 
-async def verify_channel_claim(claim_id: int, reviewer_id: int, approved: bool, notes: str = "") -> bool:
+def _validate_channel_bot_admin_proof(
+        claim: ChannelClaims,
+        proof: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not proof or not proof.get("verified"):
+        raise ValueError("Bot admin verification is required before approving this channel claim.")
+    try:
+        proof_channel_id = int(proof.get("channel_id") or 0)
+        proof_claimant_id = int(proof.get("claimant_id") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Bot admin verification proof is invalid.") from exc
+    if proof_channel_id != int(claim.channel_id) or proof_claimant_id != int(claim.claimant_id):
+        raise ValueError("Bot admin verification proof does not match this channel claim.")
+    return {
+        "telegram_status": _clean_text(str(proof.get("telegram_status") or ""), "telegram_status", 32),
+        "telegram_chat": _clean_text(str(proof.get("telegram_chat") or ""), "telegram_chat", 128),
+    }
+
+
+async def verify_channel_claim(
+        claim_id: int,
+        reviewer_id: int,
+        approved: bool,
+        notes: str = "",
+        bot_admin_verification: dict[str, Any] | None = None,
+) -> bool:
+    proof_summary: dict[str, Any] = {}
     async with Database().session() as s:
         claim = (await s.execute(
             select(ChannelClaims).where(ChannelClaims.id == int(claim_id)).with_for_update()
@@ -842,6 +884,8 @@ async def verify_channel_claim(claim_id: int, reviewer_id: int, approved: bool, 
         )).scalars().one_or_none()
         if not channel:
             return False
+        if approved and claim.method == "bot_admin":
+            proof_summary = _validate_channel_bot_admin_proof(claim, bot_admin_verification)
         claim.status = "approved" if approved else "rejected"
         claim.verified_at = datetime.datetime.now(datetime.timezone.utc)
         if approved:
@@ -853,7 +897,12 @@ async def verify_channel_claim(claim_id: int, reviewer_id: int, approved: bool, 
         user_id=int(reviewer_id),
         resource_type="ChannelClaim",
         resource_id=str(claim_id),
-        details=f"status={result_status}, notes={notes[:200]}",
+        details=(
+            f"status={result_status}, method={claim.method}, "
+            f"bot_admin_verified={bool(proof_summary)}, "
+            f"telegram_status={proof_summary.get('telegram_status', '')}, "
+            f"notes={notes[:200]}"
+        ),
     )
     return True
 

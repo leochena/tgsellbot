@@ -46,6 +46,14 @@ Model Lab, and platform operations layer.
   - `ledger-opening`: 23 opening entries created on the temporary database.
   - Repeat `ledger-opening`: 0 created, 23 skipped, proving idempotency.
   - `ledger-reconcile`: 18 users checked, 0 mismatches.
+- Channel `bot_admin` ownership claims now require live Telegram admin
+  verification before approval.
+  - The admin review API fetches the claim/channel context and calls Telegram
+    `get_chat_member` for the claimant before approving `bot_admin` claims.
+  - The data layer rejects direct `bot_admin` approvals unless the live proof
+    matches the claim channel and claimant.
+  - Challenge and manual claim methods remain available as fallback review
+    paths.
 
 ## In Progress
 
@@ -77,14 +85,13 @@ Model Lab, and platform operations layer.
    - Monitor reward appeals and review reversals.
 
 4. Channel center P0 hardening
-   - Add live Bot-admin ownership verification.
    - Add reviewer roles and review filters.
    - Expand moderation history.
 
 5. Relay directory P0 hardening
    - Add reviewer role filters.
    - Improve complaint follow-up workflows.
-   - Expand public owner-managed profiles after ownership verification is ready.
+   - Expand public owner-managed profiles after verification workflows mature.
 
 6. Model Lab P0 production wiring
    - Isolate Worker deployment from the main bot trust boundary.
@@ -108,7 +115,7 @@ Model Lab, and platform operations layer.
   and feature-flag values.
 - New production tasks remain disabled until their manual smoke path is proven.
 - Latest local runtime verification:
-  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 647 tests.
+  - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 650 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
 - Latest server runtime verification:

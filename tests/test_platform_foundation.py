@@ -252,6 +252,66 @@ class TestChannelFoundation:
             ).scalars().one()
             assert channel.owner_user_id == 220011
 
+    async def test_bot_admin_channel_claim_requires_matching_live_proof(self, user_factory):
+        await user_factory(telegram_id=220014)
+        await user_factory(telegram_id=220015)
+        submission = await submit_channel(
+            {
+                "channel": "@bot_admin_claim_channel",
+                "category": "gpt",
+                "language": "zh",
+                "reason": "bot admin owner claim test",
+            },
+            submitter_id=220014,
+        )
+
+        claim = await create_channel_claim(submission["channel"]["id"], 220015, method="bot_admin")
+
+        with pytest.raises(ValueError, match="Bot admin verification"):
+            await verify_channel_claim(claim["id"], reviewer_id=220014, approved=True)
+
+        with pytest.raises(ValueError, match="does not match"):
+            await verify_channel_claim(
+                claim["id"],
+                reviewer_id=220014,
+                approved=True,
+                bot_admin_verification={
+                    "verified": True,
+                    "channel_id": submission["channel"]["id"],
+                    "claimant_id": 220099,
+                    "telegram_status": "administrator",
+                },
+            )
+
+        ok = await verify_channel_claim(
+            claim["id"],
+            reviewer_id=220014,
+            approved=True,
+            bot_admin_verification={
+                "verified": True,
+                "channel_id": submission["channel"]["id"],
+                "claimant_id": 220015,
+                "telegram_chat": "@bot_admin_claim_channel",
+                "telegram_status": "administrator",
+            },
+        )
+
+        assert ok is True
+        admin_logs = await list_platform_audit_logs(action="channel_claim_review")
+        assert admin_logs["logs"][0]["details"].startswith(
+            "status=approved, method=bot_admin, bot_admin_verified=True"
+        )
+
+        from bot.database.main import Database
+        from bot.database.models.main import Channels
+        from sqlalchemy import select
+
+        async with Database().session() as s:
+            channel = (
+                await s.execute(select(Channels).where(Channels.id == submission["channel"]["id"]))
+            ).scalars().one()
+            assert channel.owner_user_id == 220015
+
     async def test_channel_claim_verification_context_is_admin_only(self, user_factory):
         await user_factory(telegram_id=220012)
         await user_factory(telegram_id=220013)

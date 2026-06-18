@@ -1,4 +1,5 @@
 import json
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import select
 from starlette.requests import Request
@@ -74,6 +75,7 @@ from bot.web.platform import (
     platform_public_report_page,
     platform_review_app_page,
     platform_routes,
+    PlatformAPIError,
 )
 from tests.test_telegram_init_data import make_init_data
 
@@ -301,6 +303,132 @@ class TestPlatformAPI:
         assert detail.status_code == 200
         assert "challenge" not in detail_payload["claims"][0]
         assert detail_payload["claims"][0]["verification"]["challenge_required"] is True
+
+    async def test_admin_api_live_verifies_bot_admin_channel_claims(self, user_factory):
+        await _set_platform_api_enabled("1")
+        await _role_user(user_factory, 240030)
+        await user_factory(telegram_id=240031)
+        claimant_init_data = make_init_data(240031, token="test_token")
+        submission = await submit_channel(
+            {
+                "channel": "@api_bot_admin_claim",
+                "category": "ai",
+                "language": "zh",
+                "title": "Bot Admin Claim",
+                "reason": "live bot admin verification",
+            },
+            submitter_id=240030,
+        )
+        await api_admin_channel_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/channels/submissions/{submission['submission']['id']}/review",
+            path_params={"submission_id": submission["submission"]["id"]},
+            body={"user_id": 240030, "status": "approved"},
+            authenticated=True,
+        ))
+        claim_response = await api_channel_claim(_request(
+            method="POST",
+            path=f"/platform/api/channels/{submission['channel']['id']}/claim",
+            path_params={"channel_id": submission["channel"]["id"]},
+            body={"user_id": 240031, "method": "bot_admin"},
+            authenticated=False,
+            init_data=claimant_init_data,
+        ))
+        claim = _json(claim_response)["result"]
+
+        live_proof = {
+            "verified": True,
+            "channel_id": submission["channel"]["id"],
+            "claimant_id": 240031,
+            "telegram_chat": "@api_bot_admin_claim",
+            "telegram_status": "administrator",
+        }
+        with patch("bot.web.platform._verify_channel_bot_admin_claim", new=AsyncMock(return_value=live_proof)) as verifier:
+            approval = await api_channel_claim_review(_request(
+                method="POST",
+                path=f"/platform/api/channel-claims/{claim['id']}/review",
+                path_params={"claim_id": claim["id"]},
+                body={"user_id": 240030, "approved": True},
+                authenticated=True,
+            ))
+
+        detail = await api_channel_detail(_request(
+            path=f"/platform/api/channels/{submission['channel']['id']}",
+            path_params={"channel_id": submission["channel"]["id"]},
+            authenticated=False,
+            init_data=claimant_init_data,
+        ))
+
+        assert claim_response.status_code == 201
+        assert claim["method"] == "bot_admin"
+        assert claim["verification"]["admin_rights_required"] is True
+        assert verifier.await_count == 1
+        assert approval.status_code == 200
+        detail_payload = _json(detail)["result"]
+        assert detail_payload["claim"]["status"] == "approved"
+        assert detail_payload["viewer"]["can_edit_profile"] is True
+
+    async def test_admin_api_rejects_bot_admin_claim_when_live_check_fails(self, user_factory):
+        await _set_platform_api_enabled("1")
+        await _role_user(user_factory, 240032)
+        await user_factory(telegram_id=240033)
+        claimant_init_data = make_init_data(240033, token="test_token")
+        submission = await submit_channel(
+            {
+                "channel": "@api_bot_admin_claim_fail",
+                "category": "ai",
+                "language": "zh",
+                "title": "Bot Admin Claim Fail",
+                "reason": "live bot admin verification failure",
+            },
+            submitter_id=240032,
+        )
+        await api_admin_channel_review(_request(
+            method="POST",
+            path=f"/platform/api/admin/channels/submissions/{submission['submission']['id']}/review",
+            path_params={"submission_id": submission["submission"]["id"]},
+            body={"user_id": 240032, "status": "approved"},
+            authenticated=True,
+        ))
+        claim_response = await api_channel_claim(_request(
+            method="POST",
+            path=f"/platform/api/channels/{submission['channel']['id']}/claim",
+            path_params={"channel_id": submission["channel"]["id"]},
+            body={"user_id": 240033, "method": "bot_admin"},
+            authenticated=False,
+            init_data=claimant_init_data,
+        ))
+        claim = _json(claim_response)["result"]
+
+        with patch(
+            "bot.web.platform._verify_channel_bot_admin_claim",
+            new=AsyncMock(side_effect=PlatformAPIError(
+                "Claimant is not a Telegram channel administrator.",
+                409,
+                "bot_admin_verification_failed",
+            )),
+        ):
+            approval = await api_channel_claim_review(_request(
+                method="POST",
+                path=f"/platform/api/channel-claims/{claim['id']}/review",
+                path_params={"claim_id": claim["id"]},
+                body={"user_id": 240032, "approved": True},
+                authenticated=True,
+            ))
+
+        detail = await api_channel_detail(_request(
+            path=f"/platform/api/channels/{submission['channel']['id']}",
+            path_params={"channel_id": submission["channel"]["id"]},
+            authenticated=False,
+            init_data=claimant_init_data,
+        ))
+
+        assert approval.status_code == 409
+        assert _json(approval)["code"] == "bot_admin_verification_failed"
+        detail_payload = _json(detail)["result"]
+        assert detail_payload["claim"]["status"] == "unclaimed"
+        assert detail_payload["claims"][0]["status"] == "pending"
+        assert detail_payload["viewer"]["can_edit_profile"] is False
 
     async def test_mini_app_api_reads_channel_detail_and_updates_viewer_state(self, user_factory):
         await _set_platform_api_enabled("1")
