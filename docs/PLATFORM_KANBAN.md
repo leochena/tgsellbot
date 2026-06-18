@@ -54,6 +54,15 @@ Model Lab, and platform operations layer.
     matches the claim channel and claimant.
   - Challenge and manual claim methods remain available as fallback review
     paths.
+- Invite maturity settlement is live on the Virginia server.
+  - Pre-enable read-only check: 2 total invite rewards, 0 mature unrewarded,
+    0 mature low-risk, 0 mature high-risk, 1 already rewarded.
+  - Manual `tgsellbot-invite-settle.service` pass succeeded with
+    `settled=0`, `blocked=0`.
+  - Enabling `tgsellbot-invite-settle.timer` triggered a second successful
+    pass with `settled=0`, `blocked=0`.
+  - `tgsellbot-invite-settle.timer` is enabled and active; next run observed
+    at `2026-06-19 03:32:42 CST`.
 
 ## In Progress
 
@@ -79,26 +88,21 @@ Model Lab, and platform operations layer.
    - If switching, repeat rehearsal immediately before release and define
      rollback/correction steps.
 
-3. Invite maturity
-   - Run one manual `invite-settle` pass after checking mature reward counts.
-   - Enable `tgsellbot-invite-settle.timer` only after the manual pass is clean.
-   - Monitor reward appeals and review reversals.
-
-4. Channel center P0 hardening
+3. Channel center P0 hardening
    - Add reviewer roles and review filters.
    - Expand moderation history.
 
-5. Relay directory P0 hardening
+4. Relay directory P0 hardening
    - Add reviewer role filters.
    - Improve complaint follow-up workflows.
    - Expand public owner-managed profiles after verification workflows mature.
 
-6. Model Lab P0 production wiring
+5. Model Lab P0 production wiring
    - Isolate Worker deployment from the main bot trust boundary.
    - Add scheduler/queue wiring for operator batch drain.
    - Add retention and monitoring for run and relay availability samples.
 
-7. Dashboard hardening
+6. Dashboard hardening
    - Add stable thresholds for invite retention, bans, appeals, and reviewer load.
    - Replace unavailable metric placeholders only when collection is live.
 

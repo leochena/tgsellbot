@@ -327,6 +327,20 @@ The timer runs hourly with a small randomized delay. Rewards with risk score abo
 sudo systemctl disable --now tgsellbot-invite-settle.timer
 ```
 
+Latest Virginia production enablement:
+
+- Pre-enable read-only check at `2026-06-19 02:30 CST`: 2 total invite rewards,
+  0 mature unrewarded, 0 mature low-risk, 0 mature high-risk, 1 already rewarded.
+- Manual `systemctl start tgsellbot-invite-settle.service` result: success,
+  `settled=0`, `blocked=0`.
+- `systemctl enable --now tgsellbot-invite-settle.timer` result: enabled and
+  active; the immediate timer-triggered pass also returned `settled=0`,
+  `blocked=0`.
+- Next timer run observed: `2026-06-19 03:32:42 CST`.
+- Follow-up monitoring: check `systemctl list-timers 'tgsellbot-invite-settle*'`
+  and `journalctl -u tgsellbot-invite-settle.service -n 50 --no-pager` after the
+  next scheduled run.
+
 ## 24/7 Running Notes
 
 - Use Docker `restart: unless-stopped` on VPS.
