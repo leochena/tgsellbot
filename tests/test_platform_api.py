@@ -2413,6 +2413,16 @@ class TestPlatformAPI:
         assert html.count("function renderRunHistory") == 1
         assert "publicReportUrl" in html
         assert "data-copy-report-url" in html
+        assert "data-share-report-url" in html
+        assert "data-share-report-text" in html
+        assert "reportShareText" in html
+        assert "copyTextToClipboard" in html
+        assert "telegramShareUrl" in html
+        assert "shareReportLink" in html
+        assert "navigator.share" in html
+        assert "openTelegramLink" in html
+        assert "https://t.me/share/url" in html
+        assert "分享报告" in html
         assert "私有：仅提交者可查看" in html
         assert "不公开：仅持链接/授权入口可查看" in html
         assert "公开：可进入公开报告流" in html
@@ -2502,6 +2512,15 @@ class TestPlatformAPI:
         assert html.count("function renderRunHistory") == 1
         assert "黑盒测试不能证明真实上游模型" in html
         assert "data-copy-report-url" in html
+        assert "data-share-report-url" in html
+        assert "data-share-report-text" in html
+        assert "reportShareText" in html
+        assert "copyTextToClipboard" in html
+        assert "telegramShareUrl" in html
+        assert "shareReportLink" in html
+        assert "navigator.share" in html
+        assert "https://t.me/share/url" in html
+        assert "分享报告" in html
         assert any(getattr(route, "path", "") == "/platform/reports" for route in platform_routes)
         assert any(getattr(route, "path", "") == "/platform/reports/{report_id:int}" for route in platform_routes)
         assert any(getattr(route, "path", "") == "/platform/api/public/reports" for route in platform_routes)

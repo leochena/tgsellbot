@@ -107,6 +107,10 @@ Model Lab, and platform operations layer.
 - Model Lab key manifests now have a read-only `model-key-manifest-check`
   command that validates server-local manifest shape, duplicate fingerprints,
   and redacted output before a manual drain or timer enablement.
+- Model Lab report sharing now has Mini App and public report page controls for
+  copying links, opening the system share sheet when available, and falling
+  back to Telegram share URLs. Private reports still do not generate public
+  entry links.
 - The Virginia server has the root-owned Model Lab isolated runner installed
   and smoke-tested.
   - Commit: `ae555676641b8e24695661091d83a05bbf2922c7`.
@@ -157,6 +161,8 @@ Model Lab, and platform operations layer.
    - Enable the batch-drain timer only after the server-local key manifest
      passes `model-key-manifest-check`, the isolated Worker runner is approved,
      and a manual drain is approved.
+   - Keep report sharing scoped to public/unlisted reports; private reports
+     must continue to omit public links.
 
 6. Dashboard hardening
    - Replace unavailable metric placeholders only when collection is live.
@@ -179,6 +185,11 @@ Model Lab, and platform operations layer.
   - `.\.venv312\Scripts\python.exe -m pytest -q` passed: 669 tests.
   - `git diff --check` passed with only Windows LF-to-CRLF working-copy warnings.
   - `.\.venv312\Scripts\python.exe -m compileall bot scripts tests` passed.
+  - Local Browser smoke on `http://127.0.0.1:9393/platform/app?tab=model_lab`
+    loaded the Model Lab panel, confirmed the report sharing template and copy
+    fallback were present, and reported no console errors. The public report
+    page shell also loaded with public-API-only share controls; its list fetch
+    could not complete without a local test database.
 - Latest server runtime verification:
   - `https://tg.1so.org/platform/app` returned 200 and includes the Telegram
     WebApp SDK.

@@ -2989,15 +2989,80 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       return url.toString();
     }
 
+    function reportShareText(report) {
+      const parts = [
+        `TGSellBot Model Lab Report #${report?.id || ""}`,
+        report?.grade ? `grade ${report.grade}` : "",
+        report?.declared_model ? `declared ${report.declared_model}` : "",
+        report?.returned_model ? `returned ${report.returned_model}` : "",
+      ].filter(Boolean);
+      return parts.join(" · ");
+    }
+
     function renderReportShareControls(report) {
       const shareUrl = publicReportUrl(report);
       if (!shareUrl) {
         return `<div class="item-meta">当前为私有报告，不生成公开入口。</div>`;
       }
+      const shareText = reportShareText(report);
       return (
         `<div class="item-meta">公开入口：${h(shareUrl)}</div>
-        <button type="button" data-copy-report-url="${h(shareUrl)}">复制报告链接</button>`
+        <button type="button" data-copy-report-url="${h(shareUrl)}">复制报告链接</button>
+        <button type="button" data-share-report-url="${h(shareUrl)}" data-share-report-text="${h(shareText)}">分享报告</button>`
       );
+    }
+
+    async function copyTextToClipboard(value) {
+      const text = String(value || "");
+      if (!text) return false;
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } finally {
+        textarea.remove();
+      }
+      return copied;
+    }
+
+    function telegramShareUrl(url, text) {
+      const share = new URL("https://t.me/share/url");
+      share.searchParams.set("url", url);
+      if (text) share.searchParams.set("text", text);
+      return share.toString();
+    }
+
+    async function shareReportLink(url, text) {
+      if (!url) {
+        setState("reportState", "No public report link", "error");
+        return;
+      }
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: "TGSellBot Model Lab Report", text, url });
+          setState("reportState", "Share sheet opened", "ok");
+          return;
+        } catch (error) {
+          if (error?.name === "AbortError") return;
+        }
+      }
+      const shareUrl = telegramShareUrl(url, text);
+      if (tg?.openTelegramLink) {
+        tg.openTelegramLink(shareUrl);
+      } else {
+        window.open(shareUrl, "_blank", "noopener,noreferrer");
+      }
+      setState("reportState", "Telegram share opened", "ok");
     }
 
     function ratingOptions(value = "5") {
@@ -3729,12 +3794,18 @@ PLATFORM_MINI_APP_HTML = r"""<!doctype html>
       document.querySelectorAll("[data-copy-report-url]").forEach(button => {
         button.addEventListener("click", async () => {
           try {
-            await navigator.clipboard.writeText(button.dataset.copyReportUrl || "");
-            setState("reportState", "Report link copied", "ok");
+            const copied = await copyTextToClipboard(button.dataset.copyReportUrl || "");
+            setState("reportState", copied ? "Report link copied" : "Copy unavailable", copied ? "ok" : "error");
           } catch (_error) {
             setState("reportState", "Copy failed", "error");
           }
         });
+      });
+      document.querySelectorAll("[data-share-report-url]").forEach(button => {
+        button.addEventListener("click", () => shareReportLink(
+          button.dataset.shareReportUrl || "",
+          button.dataset.shareReportText || "",
+        ));
       });
     }
 
@@ -4062,8 +4133,68 @@ PLATFORM_PUBLIC_REPORT_HTML = r"""<!doctype html>
       return url.toString();
     }
 
+    function reportShareText(report) {
+      const parts = [
+        `TGSellBot Model Lab Report #${report?.id || ""}`,
+        report?.grade ? `grade ${report.grade}` : "",
+        report?.declared_model ? `declared ${report.declared_model}` : "",
+        report?.returned_model ? `returned ${report.returned_model}` : "",
+      ].filter(Boolean);
+      return parts.join(" · ");
+    }
+
+    async function copyTextToClipboard(value) {
+      const text = String(value || "");
+      if (!text) return false;
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } finally {
+        textarea.remove();
+      }
+      return copied;
+    }
+
+    function telegramShareUrl(url, text) {
+      const share = new URL("https://t.me/share/url");
+      share.searchParams.set("url", url);
+      if (text) share.searchParams.set("text", text);
+      return share.toString();
+    }
+
+    async function shareReportLink(url, text) {
+      if (!url) {
+        setState("No public report link", "error");
+        return;
+      }
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: "TGSellBot Model Lab Report", text, url });
+          setState("Share sheet opened", "ok");
+          return;
+        } catch (error) {
+          if (error?.name === "AbortError") return;
+        }
+      }
+      window.open(telegramShareUrl(url, text), "_blank", "noopener,noreferrer");
+      setState("Telegram share opened", "ok");
+    }
+
     function renderReport(report, compact = false) {
       const job = report.job || {};
+      const publicUrl = reportUrl(report);
+      const shareText = reportShareText(report);
       return (
         `<article class="item" data-public-report="${h(report.id)}">
           <div class="item-title">Report #${h(report.id)} <span class="badge">${h(report.visibility)}</span> <span class="badge">${h(report.grade || "-")}</span></div>
@@ -4075,7 +4206,8 @@ PLATFORM_PUBLIC_REPORT_HTML = r"""<!doctype html>
           ${compact ? "" : `<div class="item-title">脱敏证据摘要</div>${renderEvidenceSummary(report.evidence_json || {})}`}
           <div class="row-actions">
             ${compact ? `<button class="primary" type="button" data-open-report="${h(report.id)}">查看报告</button>` : ""}
-            <button type="button" data-copy-report-url="${h(reportUrl(report))}">复制链接</button>
+            <button type="button" data-copy-report-url="${h(publicUrl)}">复制链接</button>
+            <button type="button" data-share-report-url="${h(publicUrl)}" data-share-report-text="${h(shareText)}">分享报告</button>
           </div>
         </article>`
       );
@@ -4090,12 +4222,18 @@ PLATFORM_PUBLIC_REPORT_HTML = r"""<!doctype html>
       document.querySelectorAll("[data-copy-report-url]").forEach(button => {
         button.addEventListener("click", async () => {
           try {
-            await navigator.clipboard.writeText(button.dataset.copyReportUrl || "");
-            setState("Link copied", "ok");
+            const copied = await copyTextToClipboard(button.dataset.copyReportUrl || "");
+            setState(copied ? "Link copied" : "Copy unavailable", copied ? "ok" : "error");
           } catch (_error) {
             setState("Copy failed", "error");
           }
         });
+      });
+      document.querySelectorAll("[data-share-report-url]").forEach(button => {
+        button.addEventListener("click", () => shareReportLink(
+          button.dataset.shareReportUrl || "",
+          button.dataset.shareReportText || "",
+        ));
       });
     }
 
