@@ -48,6 +48,9 @@ For production, also set:
 - `REDIS_ENABLED=1` with Redis available, or `0` for simpler low-traffic polling mode.
 - `CHECKIN_POINTS_REWARD`: points credited for each daily check-in. `CHECKIN_REWARD_AMOUNT` is still accepted as a legacy fallback.
 - `CHECKIN_TICKETS_PER_DAY`: lottery tickets awarded to the current active lottery on check-in.
+- `WEB_ADMIN_ENABLED=0` and `PLATFORM_WEB_ENABLED=1` when you want to serve the Telegram Mini App and platform API
+  without exposing SQLAdmin. Bind `PLATFORM_WEB_HOST` and `PLATFORM_WEB_PORT` behind a HTTPS reverse proxy, then set
+  the `platform_webapp_url` bot setting to the public `/platform/app` URL before enabling menu buttons.
 
 ## Local Windows Bring-Up
 
@@ -72,6 +75,16 @@ If you have a local PostgreSQL server:
 ```
 
 The admin panel listens on `http://localhost:9090/admin`.
+
+For Mini App-only local or production smoke tests, set `WEB_ADMIN_ENABLED=0` and `PLATFORM_WEB_ENABLED=1`. The platform
+runtime serves:
+
+- `GET /health`
+- `GET /platform/app`
+- `GET /platform/reports`
+- `GET /platform/api/...`
+
+Admin review endpoints remain session-gated and do not expose SQLAdmin login or generic database views in this mode.
 
 You can also use the Windows helper after `.env` is filled and PostgreSQL is running:
 

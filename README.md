@@ -373,8 +373,12 @@ The application requires the following environment variables:
 
 | Variable         | Description                       | Default                   |
 |------------------|-----------------------------------|---------------------------|
+| `WEB_ADMIN_ENABLED` | Start the full SQLAdmin/admin web surface (`1`/`0`) | `1` |
+| `PLATFORM_WEB_ENABLED` | Start only `/platform/app`, `/platform/api`, public reports, and `/health` when SQLAdmin is off | `0` |
 | `ADMIN_HOST`     | Admin panel bind address          | `localhost`               |
 | `ADMIN_PORT`     | Admin panel port                  | `9090`                    |
+| `PLATFORM_WEB_HOST` | Optional bind address for platform-only web serving | `ADMIN_HOST` |
+| `PLATFORM_WEB_PORT` | Optional port for platform-only web serving | `ADMIN_PORT` |
 | `ADMIN_USERNAME` | Admin panel login                 | `admin`                   |
 | `ADMIN_PASSWORD` | Admin panel password              | `admin`                   |
 | `SECRET_KEY`     | Secret key for session encryption | `change-me-in-production` |
@@ -382,6 +386,10 @@ The application requires the following environment variables:
 **Note**: In Docker, `ADMIN_HOST` is automatically set to `0.0.0.0` and the admin panel is bound to `127.0.0.1:9090` (
 localhost only). Change `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `SECRET_KEY` in production. Remote login with default
 credentials (`admin`/`admin`) is automatically blocked.
+
+For Telegram Mini App deployments that should not expose SQLAdmin, keep `WEB_ADMIN_ENABLED=0`, set
+`PLATFORM_WEB_ENABLED=1`, bind `PLATFORM_WEB_HOST`/`PLATFORM_WEB_PORT` behind a HTTPS reverse proxy, then configure
+`platform_webapp_url` to the public `/platform/app` URL before enabling platform menu buttons.
 
 </details>
 

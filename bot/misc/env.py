@@ -78,8 +78,11 @@ class EnvKeys(ABC):
 
     # Web admin panel
     WEB_ADMIN_ENABLED: Final = _get_optional("WEB_ADMIN_ENABLED", "1")
+    PLATFORM_WEB_ENABLED: Final = _get_optional("PLATFORM_WEB_ENABLED", "0")
     ADMIN_HOST: Final = _get_optional("ADMIN_HOST", _get_optional("MONITORING_HOST", "localhost"))
     ADMIN_PORT: Final = int(_get_optional("ADMIN_PORT", _get_optional("MONITORING_PORT", "9090")))
+    PLATFORM_WEB_HOST: Final = _get_optional("PLATFORM_WEB_HOST", ADMIN_HOST) or ADMIN_HOST
+    PLATFORM_WEB_PORT: Final = int(_get_optional("PLATFORM_WEB_PORT", str(ADMIN_PORT)) or str(ADMIN_PORT))
     ADMIN_USERNAME: Final = _get_optional("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD: Final = _get_optional("ADMIN_PASSWORD", "admin")
     SECRET_KEY: Final = _get_optional("SECRET_KEY", "change-me-in-production")

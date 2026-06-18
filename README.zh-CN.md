@@ -198,13 +198,20 @@ ADMIN_PASSWORD=admin
 | `CRYPTO_PAY_TOKEN` | CryptoPay API token |
 | `STARS_PER_VALUE` | Stars 充值到内部余额的兑换比例 |
 | `BALANCE_CURRENCY` | 内部余额显示名称，例如 `UStars` |
+| `WEB_ADMIN_ENABLED` | 是否启动完整 SQLAdmin / 管理后台，`1` 开启，`0` 关闭 |
+| `PLATFORM_WEB_ENABLED` | 管理后台关闭时，是否只启动 `/platform/app`、`/platform/api`、公开报告和 `/health` |
 | `ADMIN_HOST` | 管理后台监听地址 |
 | `ADMIN_PORT` | 管理后台端口，默认 `9090` |
+| `PLATFORM_WEB_HOST` | 仅启动平台 Web 时的监听地址，默认跟随 `ADMIN_HOST` |
+| `PLATFORM_WEB_PORT` | 仅启动平台 Web 时的端口，默认跟随 `ADMIN_PORT` |
 | `ADMIN_USERNAME` | 管理后台用户名 |
 | `ADMIN_PASSWORD` | 管理后台密码 |
 | `SECRET_KEY` | 后台 session 加密密钥 |
 
 更多配置见 [.env.example](.env.example)。
+
+如果只想上线 Telegram Mini App，而不暴露 SQLAdmin，可设置 `WEB_ADMIN_ENABLED=0`、`PLATFORM_WEB_ENABLED=1`，
+再通过 HTTPS 反向代理公开 `/platform/app`，最后把 `platform_webapp_url` 配置为公开地址后再开启平台菜单按钮。
 
 ## 测试
 

@@ -133,8 +133,30 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
         asyncio.create_task(admin_server.serve())
 
         logging.info(f"Recovery and admin panel initialized on {EnvKeys.ADMIN_HOST}:{EnvKeys.ADMIN_PORT}")
+    elif EnvKeys.PLATFORM_WEB_ENABLED == "1":
+        # Start only the platform Mini App/API runtime without SQLAdmin.
+        import uvicorn
+        from bot.web import create_platform_app
+
+        platform_app = create_platform_app()
+        config = uvicorn.Config(
+            platform_app,
+            host=EnvKeys.PLATFORM_WEB_HOST,
+            port=EnvKeys.PLATFORM_WEB_PORT,
+            log_level="warning",
+        )
+        admin_server = uvicorn.Server(config)
+        asyncio.create_task(admin_server.serve())
+
+        logging.info(
+            "Recovery and platform web runtime initialized on "
+            f"{EnvKeys.PLATFORM_WEB_HOST}:{EnvKeys.PLATFORM_WEB_PORT}"
+        )
     else:
-        logging.info("Recovery initialized; web admin panel disabled by WEB_ADMIN_ENABLED=0")
+        logging.info(
+            "Recovery initialized; web runtime disabled by "
+            "WEB_ADMIN_ENABLED=0 and PLATFORM_WEB_ENABLED=0"
+        )
 
 
 async def __on_shutdown(dp: Dispatcher, bot: Bot) -> None:
